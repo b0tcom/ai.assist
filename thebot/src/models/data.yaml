@@ -1,0 +1,20 @@
+# NOTE: This file contains the model's trained targeting info for detections.
+# names: ['fn - v1 2023-11-26 7-24am']
+# target_class_id: 0
+# classes: ['fn - v1 2023-11-26 7-24am']
+
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['fn - v1 2023-11-26 7-24am']
+target_class_id: 0
+classes: ['fn - v1 2023-11-26 7-24am']
+
+roboflow:
+  workspace: andrew-ma-hdid6
+  project: fn-8vb5r
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/andrew-ma-hdid6/fn-8vb5r/dataset/1

@@ -1,0 +1,30 @@
+{
+  "yolo": {
+    "model_path": "thebot/src/models/best.pt",
+    "confidence_threshold": 0.4,
+    "device": "cuda"
+  },
+  "target_class_id": 0,
+  "target_class_name": "player",
+  "fallback_model_path": "thebot/src/models/yolo/yolov8n.pt",
+  "precision_mode": "float32",
+  "warmup_iterations": 10,
+  "target_priority": 1,
+  "detection_mode": "tracking",
+  "min_player_size": [
+    10,
+    10
+  ],
+  "max_player_size": [
+    500,
+    500
+  ],
+  "ethical_mode": "production",
+  "arduino_port": "COM5",
+  "screen_region": {
+    "left": 540,
+    "top": 225,
+    "width": 600,
+    "height": 600
+  }
+}

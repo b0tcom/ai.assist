@@ -1,0 +1,59 @@
+{
+    "model_path": "thebot/src/models/best.onnx",
+    "model_input_shape": [640, 640],
+    "confidence_threshold": 0.75,
+    "nms_threshold": 0.45,
+    "max_tracking_distance": 300,
+    "aim_height_offset": 0.2,
+    "smoothing_factor": 0.3,
+    "toggle_key": "f2",
+    "model_settings": {
+     "confidence": 0.5,
+     "iou_threshold": 0.45
+    },
+    "aim_settings": {
+        "sensitivity": 1.0,
+        "max_distance": 500,
+        "shooting_height_ratios": {
+            "head": 0.15,
+            "neck": 0.25,
+            "chest": 0.35
+        },
+        "altura_tiro": 1.5,
+        "target_areas": [
+            "head",
+            "neck",
+            "chest"
+        ],
+        "smoothing_factor": 5,
+        "fov_size": 280
+    },
+    "mode_settings": {
+        "right_click": {
+            "click_button": "0x02",
+            "sensitivity": 1.0
+        },
+        "left_click": {
+            "click_button": "0x01",
+            "sensitivity": 0.5
+        }
+    },
+    "key_bindings": {
+        "activation_key": "f1",
+        "deactivation_key": "f2"
+    },
+    "anti_recoil": {
+        "enabled": true,
+        "vertical_strength": 0.5,
+        "horizontal_strength": 0.2,
+        "pattern_enabled": false
+    },
+    "rapid_fire": {
+        "enabled": false,
+        "fire_rate": 0.1
+    },
+    "hip_mode_enabled": true,
+    "arduino_port": "COM5",
+    "arduino_baudrate": 115200,
+    "recoil_strength": 5
+}

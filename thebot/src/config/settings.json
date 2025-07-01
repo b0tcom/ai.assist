@@ -1,0 +1,24 @@
+{
+  "model_path": "thebot/src/models/best.onnx",
+  "fallback_model_path": "thebot/src/models/yolo/yolov8n.pt",
+  "precision_mode": "float32",
+  "warmup_iterations": 10,
+  "target_priority": 1,
+  "detection_mode": "tracking",
+  "min_player_size": [
+    10,
+    10
+  ],
+  "max_player_size": [
+    500,
+    500
+  ],
+  "arduino_port": "COM5",
+  "screen_region": {
+    "top": 0,
+    "left": 0,
+    "width": 1600,
+    "height": 1024
+  },
+  "ethical_mode": "production"
+}
