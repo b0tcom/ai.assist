@@ -1,77 +1,61 @@
-/*
- * CV Targeting System - Arduino Mouse Controller
- * ---------------------------------------------
- * This sketch listens for serial commands from the Python host application
- * and translates them into mouse movements.
- *
- * It requires an Arduino with native USB support (ATmega32U4 based),
- * such as the Arduino Leonardo or Pro Micro.
- *
- * Serial Command Protocol:
- * - Move: "m,dx,dy\n" (e.g., "m,10,-5\n")
- * - Recoil: "r,strength\n" (e.g., "r,5\n")
- */
-
 #include <Mouse.h>
-#include <HID.h>
 
 String serialBuffer = "";
 
 void setup() {
-  // Start serial communication at the baud rate specified in the Python config.
   Serial.begin(115200);
-  // Initialize the mouse library.
   Mouse.begin();
-  serialBuffer.reserve(32);  // Pre-allocate buffer memory
+  serialBuffer.reserve(32);  // Reserve space for command strings
 }
 
 void loop() {
-  // Read from serial port if data is available.
+  // Read from serial and accumulate until newline
   while (Serial.available() > 0) {
     char receivedChar = Serial.read();
-
-    // Process the command when a newline character is received.
     if (receivedChar == '\n') {
       processCommand(serialBuffer);
-      serialBuffer = "";  // Clear the buffer for the next command
+      serialBuffer = "";  // Reset buffer
     } else {
-      serialBuffer += receivedChar;  // Append character to the buffer
+      serialBuffer += receivedChar;
+      // Avoid overflow if no newline is sent
+      if (serialBuffer.length() > 64) serialBuffer = "";
     }
   }
 }
 
-void processCommand(String command) {
-  // Check the command type (e.g., 'm' for move, 'r' for recoil).
+void processCommand(const String &command) {
+  if (command.length() == 0) return;
+
+  // Debug: Echo received command
+  Serial.print("Received: ");
+  Serial.println(command);
+
+  // Mouse move: "m,dx,dy"
   if (command.startsWith("m,")) {
-    parseAndMove(command);
-  } else if (command.startsWith("r,")) {
-    applyRecoil(command);
+    int firstComma = command.indexOf(',');
+    int secondComma = command.indexOf(',', firstComma + 1);
+    if (firstComma > 0 && secondComma > firstComma) {
+      int dx = command.substring(firstComma + 1, secondComma).toInt();
+      int dy = command.substring(secondComma + 1).toInt();
+      Mouse.move(dx, dy, 0);
+      // Debug: Echo action
+      Serial.print("Moved mouse by: ");
+      Serial.print(dx);
+      Serial.print(", ");
+      Serial.println(dy);
+    }
   }
-}
-
-void parseAndMove(String command) {
-  // Find the positions of the delimiters.
-  int firstComma = command.indexOf(',');
-  int secondComma = command.indexOf(',', firstComma + 1);
-
-  // Extract the dx and dy values.
-  String dxStr = command.substring(firstComma + 1, secondComma);
-  String dyStr = command.substring(secondComma + 1);
-
-  // Convert to integers and move the mouse.
-  int dx = dxStr.toInt();
-  int dy = dyStr.toInt();
-  Mouse.move(dx, dy, 0);
-}
-
-void applyRecoil(String command) {
-  // Find the position of the delimiter.
-  int firstComma = command.indexOf(',');
-
-  // Extract the recoil strength value.
-  String strengthStr = command.substring(firstComma + 1);
-  int strength = strengthStr.toInt();
-
-  // Apply recoil by moving the mouse down.
-  Mouse.move(0, strength, 0);
+  // Recoil: "r,strength"
+  else if (command.startsWith("r,")) {
+    int firstComma = command.indexOf(',');
+    if (firstComma > 0) {
+      int strength = command.substring(firstComma + 1).toInt();
+      Mouse.move(0, strength, 0);
+      // Debug: Echo action
+      Serial.print("Applied recoil: ");
+      Serial.println(strength);
+    }
+  }
+  // Add additional commands here, if needed.
+  // else if (command.startsWith("jitter,")) { ... }
 }

@@ -8,6 +8,7 @@ import torch
 import win32api  # For getting current cursor position
 
 # Setup logging
+
 def setup_logging(level=logging.INFO):
     """Sets up the console logger."""
     if not logging.getLogger().handlers:
@@ -33,18 +34,21 @@ class Logger:
         self.logger = logging.getLogger(name)
 
     def info(self, msg):
+        """Log an info message."""
         self.logger.info(msg)
 
     def debug(self, msg):
+        """Log a debug message."""
         self.logger.debug(msg)
 
     def warning(self, msg):
+        """Log a warning message."""
         self.logger.warning(msg)
 
     def error(self, msg, exc_info=False):
+        """Log an error message."""
         self.logger.error(msg, exc_info=exc_info)
 
-# Performance timing utility (for CUDA operations)
 class CudaTimer:
     """Measures execution time for CUDA operations."""
     def __init__(self):
@@ -76,7 +80,6 @@ class CudaTimer:
         cpu_time_ms = (time.perf_counter() - self.start_time) * 1000
         return cuda_time_ms, cpu_time_ms
 
-# Coordinate transformation
 def screen_to_target_coords(bbox, aim_height_offset):
     """Calculates target coordinates (center + offset) from a bounding box."""
     x1, y1, x2, y2 = bbox
@@ -91,7 +94,6 @@ def get_current_mouse_position():
 
 class PerformanceMonitor:
     """Measures and logs real-time performance metrics."""
-
     def __init__(self):
         self.start_time = None
         self.frame_count = 0

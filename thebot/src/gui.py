@@ -127,12 +127,32 @@ class CVTargetingGUI:
         tk.Label(status_frame, textvariable=self.arduino_status, fg='#00ff00', bg=self.bg_color).pack(side=tk.LEFT)
 
     def init_from_config(self, config):
+        # Set all settings from config dict (including advanced settings)
         for key, var in self.settings.items():
             if key in config:
                 try:
                     var.set(config[key])
                 except Exception:
                     pass
+        # Advanced settings
+        if 'aim_settings' in config:
+            for k, v in config['aim_settings'].items():
+                if k in self.settings:
+                    try:
+                        self.settings[k].set(v)
+                    except Exception:
+                        pass
+        if 'kalman_filter' in config:
+            if 'kalman_transition_cov' in self.settings:
+                self.settings['kalman_transition_cov'].set(config['kalman_filter'].get('transition_covariance', 0.01))
+            if 'kalman_observation_cov' in self.settings:
+                self.settings['kalman_observation_cov'].set(config['kalman_filter'].get('observation_covariance', 0.01))
+        if 'delay' in config and 'delay' in self.settings:
+            self.settings['delay'].set(config['delay'])
+        if 'fov_size' in config and 'fov_size' in self.settings:
+            self.settings['fov_size'].set(config['fov_size'])
+        if 'aim_height' in config and 'aim_height' in self.settings:
+            self.settings['aim_height'].set(config['aim_height'])
 
     def create_slider(self, parent, label, variable, from_val, to_val, resolution):
         frame = tk.Frame(parent, bg=self.bg_color)

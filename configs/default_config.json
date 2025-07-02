@@ -5,7 +5,7 @@
     "device": "cuda"
   },
   "target_class_id": 0,
-  "target_class_name": "player",
+  "target_class_name": "fn - v1 2023-11-26 7-24am",
   "fallback_model_path": "thebot/src/models/yolo/yolov8n.pt",
   "precision_mode": "float32",
   "warmup_iterations": 10,
@@ -16,15 +16,15 @@
     10
   ],
   "max_player_size": [
-    500,
-    500
+    250,
+    250
   ],
   "ethical_mode": "production",
   "arduino_port": "COM5",
   "screen_region": {
-    "left": 540,
-    "top": 225,
-    "width": 600,
-    "height": 600
+    "left": 820,
+    "top": 400,
+    "width": 280,
+    "height": 280
   }
 }

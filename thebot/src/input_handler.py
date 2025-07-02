@@ -24,7 +24,18 @@ class InputController:
         self.ser = None
         
         # Anti-recoil settings
-        self.recoil_strength = self.config.get('recoil_strength')
+        self.recoil_strength = self.config.get('recoil_strength', 5)
+        # New settings for advanced aim/anti-recoil/rapid-fire
+        self.aim_settings = self.config.get('aim_settings', {})
+        self.mode_settings = self.config.get('mode_settings', {})
+        self.key_bindings = self.config.get('key_bindings', {})
+        self.anti_recoil = self.config.get('anti_recoil', {})
+        self.rapid_fire = self.config.get('rapid_fire', {})
+        self.hip_mode_enabled = self.config.get('hip_mode_enabled', True)
+        self.delay = self.config.get('delay', 5e-05)
+        self.fov_size = self.aim_settings.get('fov_size', 280)
+        self.aim_height = self.config.get('aim_height', 0.25)
+        self.kalman_filter = self.config.get('kalman_filter', {'transition_covariance': 0.01, 'observation_covariance': 0.01})
 
     def connect(self):
         """Establishes a serial connection with the Arduino."""
