@@ -9,6 +9,7 @@ packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "abseil-cpp", "awseb
 run = ["sh", "-c", "python /main.py"]
 
 [workflows]
+runButton = "Run AI Targeting System"
 
 [[workflows.workflow]]
 name = "start"
@@ -21,3 +22,12 @@ args = "start"
 
 [[workflows.workflow.tasks]]
 task = "packager.installForAll"
+
+[[workflows.workflow]]
+name = "Run AI Targeting System"
+author = 38504167
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"

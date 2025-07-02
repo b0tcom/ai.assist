@@ -280,6 +280,15 @@ class CVTargetingSystem:
 
     def run(self):
         logger.info("Starting CVTargetingSystem.run()")
+        
+        # Check dependencies first
+        from utils import check_dependencies
+        missing_deps = check_dependencies()
+        if missing_deps:
+            logger.error(f"Missing critical dependencies: {missing_deps}")
+            logger.error("Please install missing packages with: pip install -r requirements.txt")
+            return
+            
         self.load_config()
         # Connect to Arduino before GUI or detection
         self.input_ctrl = InputController(self.config)
@@ -413,7 +422,11 @@ class CVTargetingSystem:
 
     def capture_loop(self):
         """Fast screen capture loop using bettercam with frame interpolation for target FPS."""
-        import bettercam
+        try:
+            import bettercam
+        except ImportError:
+            logger.error("bettercam module not found. Please install it with: pip install bettercam")
+            return
         target_fps = 120  # You can adjust this as needed
         frame_interval = 1.0 / target_fps
         if self.frame_queue is None:

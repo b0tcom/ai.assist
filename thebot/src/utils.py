@@ -3,6 +3,8 @@ Utility Module
 Purpose: Provides shared utility classes like logging and performance monitoring.
 """
 import logging
+import sys
+import importlib.util
 import time
 import torch
 import win32api  # For getting current cursor position
@@ -18,6 +20,23 @@ def setup_logging(level=logging.INFO):
     return logging.getLogger(__name__)
 
 logger = setup_logging()
+
+def check_dependencies():
+    """Check if critical dependencies are available."""
+    missing_deps = []
+    critical_deps = ['bettercam', 'ultralytics', 'cv2', 'numpy', 'serial']
+
+    for dep in critical_deps:
+        if dep == 'cv2':
+            # OpenCV is imported as cv2 but package name is opencv-python
+            spec = importlib.util.find_spec('cv2')
+        else:
+            spec = importlib.util.find_spec(dep)
+
+        if spec is None:
+            missing_deps.append(dep)
+
+    return missing_deps
 
 class Logger:
     """A simple, standardized logging wrapper."""
