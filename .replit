@@ -3,6 +3,21 @@ run = "python /main.py"
 
 [nix]
 channel = "stable-24_05"
+packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "abseil-cpp", "awsebcli", "cacert", "cairo", "cargo", "chromedriver", "espeak-ng", "ffmpeg-full", "fontconfig", "freetype", "gdb", "geos", "ghostscript", "glfw3", "glibcLocales", "gobject-introspection", "gtest", "gtk3", "hdf5", "libGL", "libGLU", "libcxx", "libffi", "libiconv", "libjpeg", "libjpeg_turbo", "libpng", "libxcrypt", "ncurses", "openssl", "pkg-config", "portmidi", "qhull", "rustc", "tcl", "tk", "unzip", "util-linux", "which", "xsimd"]
 
 [deployment]
 run = ["sh", "-c", "python /main.py"]
+
+[workflows]
+
+[[workflows.workflow]]
+name = "start"
+mode = "parallel"
+author = 38504167
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "start"
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"

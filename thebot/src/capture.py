@@ -12,7 +12,9 @@ import mss
 logger = Logger(name=__name__)
 
 # Load CONFIG before using it
-CONFIG = getattr(config, "load_config", lambda: config.Config)() if hasattr(config, "load_config") else getattr(config, "CONFIG", None)
+CONFIG = getattr(config, "load_config", lambda: config.Config)() if hasattr(
+    config, "load_config") else getattr(config, "CONFIG", None)
+
 
 def get_screen_size():
     if win32api:
@@ -22,8 +24,10 @@ def get_screen_size():
             mon = sct.monitors[1]
             return mon['width'], mon['height']
 
+
 class ScreenCapture:
     """Handles high-performance screen capturing using bettercam."""
+
     def __init__(self, region=None):
         # Use real screen size for all region math
         self.screen_w, self.screen_h = get_screen_size()
@@ -55,19 +59,25 @@ class ScreenCapture:
                 self.region = default_region
         else:
             self.region = default_region
-        logger.info("Screen capture initialized for region: {}".format(self.region))
+        logger.info("Screen capture initialized for region: {}".format(
+            self.region))
         self.cam = bettercam.create()
 
     def _sanitize_region(self):
         # Clamp to bounds and ensure int using real screen size
-        left = int(max(0, min(int(self.region["left"]), self.screen_w-1)))
-        top = int(max(0, min(int(self.region["top"]), self.screen_h-1)))
+        left = int(max(0, min(int(self.region["left"]), self.screen_w - 1)))
+        top = int(max(0, min(int(self.region["top"]), self.screen_h - 1)))
         width = int(min(int(self.region["width"]), self.screen_w - left))
         height = int(min(int(self.region["height"]), self.screen_h - top))
         region = {"left": left, "top": top, "width": width, "height": height}
         logger.info(f"Sanitized region: {region}")
-        logger.info(f"Region types: {[type(left), type(top), type(width), type(height)]}")
-        assert all(isinstance(x, int) and x >= 0 for x in [left, top, width, height]), f"Region values must be int and >=0: {region}"
+        logger.info(
+            f"Region types: {[type(left), type(top), type(width), type(height)]}"
+        )
+        assert all(
+            isinstance(x, int) and x >= 0
+            for x in [left, top, width, height
+                      ]), f"Region values must be int and >=0: {region}"
         return region
 
     def capture(self):
@@ -76,15 +86,23 @@ class ScreenCapture:
         try:
             logger.info(f"About to capture region: {region}")
             try:
-                frame = self.cam.grab(
-                    region=(region["left"], region["top"], region["width"], region["height"]))
+                frame = self.cam.grab(region=(region["left"], region["top"],
+                                              region["width"],
+                                              region["height"]))
             except Exception as e:
-                logger.error(f"Grab failed with region=({region['left']},{region['top']},{region['width']},{region['height']}): {e}")
+                logger.error(
+                    f"Grab failed with region=({region['left']},{region['top']},{region['width']},{region['height']}): {e}"
+                )
                 # Try width-1/height-1 if error persists
                 if region["width"] > 1 and region["height"] > 1:
-                    logger.info(f"Retrying with width-1/height-1: ({region['left']},{region['top']},{region['width']-1},{region['height']-1})")
+                    logger.info(
+                        f"Retrying with width-1/height-1: ({region['left']},{region['top']},{region['width']-1},{region['height']-1})"
+                    )
                     try:
-                        frame = self.cam.grab(region=(region["left"], region["top"], region["width"]-1, region["height"]-1))
+                        frame = self.cam.grab(region=(region["left"],
+                                                      region["top"],
+                                                      region["width"] - 1,
+                                                      region["height"] - 1))
                     except Exception as e2:
                         logger.error(f"Second grab attempt failed: {e2}")
                         frame = None
