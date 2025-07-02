@@ -6,7 +6,7 @@ import json
 import argparse
 import os
 import yaml  # Add this import
-from utils import Logger
+from logger_util import Logger
 
 class Config:
     """Handles application configuration from a file and CLI arguments."""
@@ -15,8 +15,8 @@ class Config:
         self.logger = Logger(__name__)
         if config_path is None:
             # Prefer ini if present, else fallback to json
-            if os.path.exists("src/configs/config.ini"):
-                config_path = "src/configs/config.ini"
+            if os.path.exists("configs/config.ini"):
+                config_path = "configs/config.ini"
             else:
                 config_path = "configs/default_config.json"
         self._config = self._load_from_file(config_path)

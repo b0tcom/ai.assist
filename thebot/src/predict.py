@@ -1,7 +1,11 @@
 import numpy as np
 import time
 from typing import Tuple, Optional
-from capture import CONFIG
+try:
+    import capture
+    CONFIG = getattr(capture, "CONFIG", None)
+except ImportError:
+    CONFIG = None  # Fallback if CONFIG is not available
 from utils import logger
 
 class TargetPredictor:

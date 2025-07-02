@@ -1,5 +1,5 @@
 {
-    "model_path": "thebot/src/models/best.onnx",
+    "model_path": "thebot/src/models/best.pt",
     "model_input_shape": [640, 640],
     "confidence_threshold": 0.75,
     "nms_threshold": 0.45,

@@ -1,0 +1,49 @@
+--- a/main.py
++++ b/main.py
+@@ -1,6 +1,7 @@
+ from pynput import keyboard, mouse
+ from listen import listen_k_press, listen_k_release, listen_m_click, listen_init, get_D_L, mouse_redirection, move_mouse
+ import argparse
++import sys
+ from args_ import *
+ from threading import Thread
+ from capture import *
+@@ -26,6 +27,17 @@ if __name__ == "__main__":
+     listening = True
+     print("listeners start")
+ 
++    # Add resolution validation before starting
++    try:
++        # Validate configuration file
++        if not validate_config_file("config.ini"):
++            print("\033[01;04;31mERROR:\033[00m Configuration region exceeds display bounds!")
++            print("Please check the log messages above for suggested fixes.")
++            sys.exit(1)
++    except Exception as e:
++        print(f"\033[01;04;31mERROR:\033[00m Failed to validate config: {e}")
++        sys.exit(1)
++
+     args = argparse.ArgumentParser()
+     args = arg_init(args)
+     listen_init(args)
+@@ -34,7 +46,18 @@ if __name__ == "__main__":
+     thread_1.start()
+     print(thread_1)
+ 
+-    capture_init(args)
++    # Initialize capture with error handling
++    try:
++        capture_init(args, config_path="config.ini")
++        
++        # Display capture info
++        capture_info = get_capture_info()
++        print(f"Capture initialized - Region: {capture_info['current_region']}")
++        print(f"Desktop: {capture_info['desktop_resolution']}, Actual: {capture_info['actual_resolution']}")
++        
++    except Exception as e:
++        print(f"\033[01;04;31mERROR:\033[00m Failed to initialize capture: {e}")
++        sys.exit(1)
++        
+     if args.model[-3:] == ".pt":
+         from predict import *
+         predict_init(args)

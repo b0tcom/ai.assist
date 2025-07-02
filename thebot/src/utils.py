@@ -6,6 +6,7 @@ import logging
 import time
 import torch
 import win32api  # For getting current cursor position
+# from logger_util import Logger
 
 # Setup logging
 
@@ -120,3 +121,10 @@ class PerformanceMonitor:
             logger.debug(f"Performance: Avg Latency: {avg_latency_ms:.2f} ms | FPS: {fps:.2f}")
             self.frame_count = 0
             self.total_time = 0
+
+def log_display_info():
+    from capture import get_actual_display_resolution, get_dpi_scale
+    w, h = get_actual_display_resolution()
+    dpi_scale = get_dpi_scale()
+    logging.info(f"[DISPLAY] Actual display resolution: {w}x{h}")
+    logging.info(f"[DISPLAY] Windows DPI scaling factor: {dpi_scale:.2f}x ({dpi_scale*100:.0f}%)")
