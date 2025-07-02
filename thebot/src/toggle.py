@@ -19,6 +19,7 @@ import threading
 import time
 from utils import Logger
 
+
 class ToggleManager:
     """
     Listens for hotkeys and mouse events to toggle system states.
@@ -31,9 +32,11 @@ class ToggleManager:
     - Implements thread-safe state management.
     """
 
-
-    def __init__(self, on_aimbot_toggle=None, on_targeting_toggle=None, 
-                 aimbot_key='f1', targeting_key='right'):
+    def __init__(self,
+                 on_aimbot_toggle=None,
+                 on_targeting_toggle=None,
+                 aimbot_key='f1',
+                 targeting_key='right'):
         self.logger = Logger(__name__)
         self._state_lock = threading.Lock()
         self.aimbot_enabled = False
@@ -45,36 +48,37 @@ class ToggleManager:
         self._thread = None
         self._running = False
 
-
         # CUDA check moved to initialization for clarity
         self.cuda_available = torch and torch.cuda.is_available()
         if self.cuda_available:
-            self.logger.info("CUDA is available. Using NVIDIA GPU for detection.")
+            self.logger.info(
+                "CUDA is available. Using NVIDIA GPU for detection.")
         else:
-            self.logger.warning("CUDA is NOT available. Detection will run on CPU.")
+            self.logger.warning(
+                "CUDA is NOT available. Detection will run on CPU.")
 
     def _listen(self):
         if not keyboard:
-            self.logger.error("keyboard module not available! ToggleManager cannot run.")
+            self.logger.error(
+                "keyboard module not available! ToggleManager cannot run.")
             return
-
-
-
-
-
 
         try:
             keyboard.add_hotkey(self.aimbot_key, self._toggle_aimbot)
-            keyboard.add_hotkey(self.targeting_key, self._toggle_targeting_down, suppress=False, trigger_on_release=False)
-            keyboard.add_hotkey(self.targeting_key, self._toggle_targeting_up, suppress=False, trigger_on_release=True)
+            keyboard.add_hotkey(self.targeting_key,
+                                self._toggle_targeting_down,
+                                suppress=False,
+                                trigger_on_release=False)
+            keyboard.add_hotkey(self.targeting_key,
+                                self._toggle_targeting_up,
+                                suppress=False,
+                                trigger_on_release=True)
         except Exception as e:
             self.logger.error(f"Failed to register hotkeys: {e}")
             return
 
         while self._running:
             time.sleep(0.05)
-
-
 
         try:
             keyboard.remove_hotkey(self.aimbot_key)
@@ -83,10 +87,6 @@ class ToggleManager:
             self.logger.warning(f"Failed to remove hotkeys: {e}")
 
     def _toggle_aimbot(self):
-
-
-
-
 
         with self._state_lock:
             self.aimbot_enabled = not self.aimbot_enabled
@@ -97,10 +97,6 @@ class ToggleManager:
 
     def _toggle_targeting_down(self):
 
-
-
-
-
         with self._state_lock:
             if not self.targeting_enabled:
                 self.targeting_enabled = True
@@ -109,10 +105,6 @@ class ToggleManager:
                 self.logger.info("AI Targeting ENABLED (right mouse down)")
 
     def _toggle_targeting_up(self):
-
-
-
-
 
         with self._state_lock:
             if self.targeting_enabled:
@@ -127,7 +119,9 @@ class ToggleManager:
             self._thread = threading.Thread(target=self._listen, daemon=True)
             self._thread.start()
 
-            self.logger.info(f"ToggleManager started. {self.aimbot_key} toggles aimbot. Hold {self.targeting_key} for targeting.")
+            self.logger.info(
+                f"ToggleManager started. {self.aimbot_key} toggles aimbot. Hold {self.targeting_key} for targeting."
+            )
 
     def stop(self):
         if self._running:
@@ -152,6 +146,7 @@ class ToggleManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
+
 
 # Example usage:
 # def on_aimbot(state): print("Aimbot:", state)
