@@ -40,8 +40,7 @@ using namespace firmata;
  * @param stream_enable A zero value will disable the stream, a non-zero will enable the stream
  * @note The maximum resulting value is 14-bits (16384).
  */
-void FirmataMarshaller::reportAnalog(uint8_t pin, bool stream_enable)
-const
+void FirmataMarshaller::reportAnalog(uint8_t pin, bool stream_enable) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   // pin can only be 0-15, so chop higher bits
@@ -57,8 +56,7 @@ const
  * of the Arduino digital pin numbering scheme. Port 0 = pins D0 - D7, port 1 = pins D8 - D15, etc.
  * @param stream_enable A zero value will disable the stream, a non-zero will enable the stream
  */
-void FirmataMarshaller::reportDigitalPort(uint8_t portNumber, bool stream_enable)
-const
+void FirmataMarshaller::reportDigitalPort(uint8_t portNumber, bool stream_enable) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(REPORT_DIGITAL | (portNumber & 0xF));
@@ -72,8 +70,7 @@ const
  * @param bytec The size of the storage for the analog value
  * @param bytev The pointer to the location of the analog value
  */
-void FirmataMarshaller::sendExtendedAnalog(uint8_t pin, size_t bytec, uint8_t * bytev)
-const
+void FirmataMarshaller::sendExtendedAnalog(uint8_t pin, size_t bytec, uint8_t * bytev) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(START_SYSEX);
@@ -89,8 +86,7 @@ const
  * @param bytev A pointer to the array of data bytes to send in the message.
  * @param max_bytes Force message to be n bytes, regardless of data bits.
  */
-void FirmataMarshaller::encodeByteStream (size_t bytec, uint8_t * bytev, size_t max_bytes)
-const
+void FirmataMarshaller::encodeByteStream (size_t bytec, uint8_t * bytev, size_t max_bytes) const
 {
   static const size_t transmit_bits = 7;
   static const uint8_t transmit_mask = ((1 << transmit_bits) - 1);
@@ -162,8 +158,7 @@ void FirmataMarshaller::end(void)
 /**
  * Query the target's firmware name and version
  */
-void FirmataMarshaller::queryFirmwareVersion(void)
-const
+void FirmataMarshaller::queryFirmwareVersion(void) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(START_SYSEX);
@@ -174,8 +169,7 @@ const
 /**
  * Query the target's Firmata protocol version
  */
-void FirmataMarshaller::queryVersion(void)
-const
+void FirmataMarshaller::queryVersion(void) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(REPORT_VERSION);
@@ -188,8 +182,7 @@ const
  * message.
  * @param pin The analog pin for which to request the value (limited to pins 0 - 15).
  */
-void FirmataMarshaller::reportAnalogDisable(uint8_t pin)
-const
+void FirmataMarshaller::reportAnalogDisable(uint8_t pin) const
 {
   reportAnalog(pin, false);
 }
@@ -201,8 +194,7 @@ const
  * message.
  * @param pin The analog pin for which to request the value (limited to pins 0 - 15).
  */
-void FirmataMarshaller::reportAnalogEnable(uint8_t pin)
-const
+void FirmataMarshaller::reportAnalogEnable(uint8_t pin) const
 {
   reportAnalog(pin, true);
 }
@@ -214,8 +206,7 @@ const
  * physical microcontroller. Ports are defined in order per every 8 pins in ascending order
  * of the Arduino digital pin numbering scheme. Port 0 = pins D0 - D7, port 1 = pins D8 - D15, etc.
  */
-void FirmataMarshaller::reportDigitalPortDisable(uint8_t portNumber)
-const
+void FirmataMarshaller::reportDigitalPortDisable(uint8_t portNumber) const
 {
   reportDigitalPort(portNumber, false);
 }
@@ -227,8 +218,7 @@ const
  * physical microcontroller. Ports are defined in order per every 8 pins in ascending order
  * of the Arduino digital pin numbering scheme. Port 0 = pins D0 - D7, port 1 = pins D8 - D15, etc.
  */
-void FirmataMarshaller::reportDigitalPortEnable(uint8_t portNumber)
-const
+void FirmataMarshaller::reportDigitalPortEnable(uint8_t portNumber) const
 {
   reportDigitalPort(portNumber, true);
 }
@@ -242,8 +232,7 @@ const
  * @param value The value of the analog pin (0 - 1024 for 10-bit analog, 0 - 4096 for 12-bit, etc).
  * @note The maximum value is 14-bits (16384).
  */
-void FirmataMarshaller::sendAnalog(uint8_t pin, uint16_t value)
-const
+void FirmataMarshaller::sendAnalog(uint8_t pin, uint16_t value) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   if ( (0xF >= pin) && (0x3FFF >= value) ) {
@@ -259,8 +248,7 @@ const
  * have an ANALOG_MAPPING_RESPONSE command byte, followed by a list of pins [0-n]; where each
  * pin will specify its corresponding analog pin number or 0x7F (127) if not applicable.
  */
-void FirmataMarshaller::sendAnalogMappingQuery(void)
-const
+void FirmataMarshaller::sendAnalogMappingQuery(void) const
 {
   sendSysex(ANALOG_MAPPING_QUERY, 0, NULL);
 }
@@ -270,8 +258,7 @@ const
  * a CAPABILITY_RESPONSE command byte, followed by a list of byte tuples (mode and mode resolution)
  * for each pin; where each pin list is terminated by 0x7F (127).
  */
-void FirmataMarshaller::sendCapabilityQuery(void)
-const
+void FirmataMarshaller::sendCapabilityQuery(void) const
 {
   sendSysex(CAPABILITY_QUERY, 0, NULL);
 }
@@ -281,8 +268,7 @@ const
  * @param pin The digital pin to send the value of.
  * @param value The value of the pin.
  */
-void FirmataMarshaller::sendDigital(uint8_t pin, uint8_t value)
-const
+void FirmataMarshaller::sendDigital(uint8_t pin, uint8_t value) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(SET_DIGITAL_PIN_VALUE);
@@ -299,8 +285,7 @@ const
  * of the Arduino digital pin numbering scheme. Port 0 = pins D0 - D7, port 1 = pins D8 - D15, etc.
  * @param portData The value of the port. The value of each pin in the port is represented by a bit.
  */
-void FirmataMarshaller::sendDigitalPort(uint8_t portNumber, uint16_t portData)
-const
+void FirmataMarshaller::sendDigitalPort(uint8_t portNumber, uint16_t portData) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(DIGITAL_MESSAGE | (portNumber & 0xF));
@@ -316,8 +301,7 @@ const
  * @param bytec The length of the firmware name
  * @param bytev The firmware name array
  */
-void FirmataMarshaller::sendFirmwareVersion(uint8_t major, uint8_t minor, size_t bytec, uint8_t *bytev)
-const
+void FirmataMarshaller::sendFirmwareVersion(uint8_t major, uint8_t minor, size_t bytec, uint8_t *bytev) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   size_t i;
@@ -336,8 +320,7 @@ const
  * @param major The major verison number
  * @param minor The minor version number
  */
-void FirmataMarshaller::sendVersion(uint8_t major, uint8_t minor)
-const
+void FirmataMarshaller::sendVersion(uint8_t major, uint8_t minor) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(REPORT_VERSION);
@@ -352,8 +335,7 @@ const
  * @param pin The pin to configure.
  * @param config The configuration value for the specified pin.
  */
-void FirmataMarshaller::sendPinMode(uint8_t pin, uint8_t config)
-const
+void FirmataMarshaller::sendPinMode(uint8_t pin, uint8_t config) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(SET_PIN_MODE);
@@ -368,8 +350,7 @@ const
  * @param pin The pin to query
  * @note The pin state is any data written to the pin (i.e. pin state != pin value)
  */
-void FirmataMarshaller::sendPinStateQuery(uint8_t pin)
-const
+void FirmataMarshaller::sendPinStateQuery(uint8_t pin) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(START_SYSEX);
@@ -385,8 +366,7 @@ const
  * @param bytec The number of data bytes in the message (excludes start, command and end bytes).
  * @param bytev A pointer to the array of data bytes to send in the message.
  */
-void FirmataMarshaller::sendSysex(uint8_t command, size_t bytec, uint8_t *bytev)
-const
+void FirmataMarshaller::sendSysex(uint8_t command, size_t bytec, uint8_t *bytev) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   size_t i;
@@ -402,8 +382,7 @@ const
  * Send a string to the Firmata host application.
  * @param string A pointer to the char string
  */
-void FirmataMarshaller::sendString(const char *string)
-const
+void FirmataMarshaller::sendString(const char *string) const
 {
   sendSysex(STRING_DATA, strlen(string), reinterpret_cast<uint8_t *>(const_cast<char *>(string)));
 }
@@ -413,8 +392,7 @@ const
  * @param interval_ms The interval (in milliseconds) at which to sample
  * @note The default sampling interval is 19ms
  */
-void FirmataMarshaller::setSamplingInterval(uint16_t interval_ms)
-const
+void FirmataMarshaller::setSamplingInterval(uint16_t interval_ms) const
 {
   sendSysex(SAMPLING_INTERVAL, sizeof(interval_ms), reinterpret_cast<uint8_t *>(&interval_ms));
 }
@@ -423,8 +401,7 @@ const
  * Perform a software reset on the target. For example, StandardFirmata.ino will initialize
  * everything to a known state and reset the parsing buffer.
  */
-void FirmataMarshaller::systemReset(void)
-const
+void FirmataMarshaller::systemReset(void) const
 {
   if ( (Stream *)NULL == FirmataStream ) { return; }
   FirmataStream->write(SYSTEM_RESET);
