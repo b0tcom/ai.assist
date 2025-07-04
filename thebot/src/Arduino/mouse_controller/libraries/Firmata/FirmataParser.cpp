@@ -173,8 +173,7 @@ void FirmataParser::parse(uint8_t inputData)
 /**
  * @return Returns true if the parser is actively parsing data.
  */
-bool FirmataParser::isParsingMessage(void)
-const
+bool FirmataParser::isParsingMessage(void) const
 {
   return (waitForData > 0 || parsingSysex);
 }
