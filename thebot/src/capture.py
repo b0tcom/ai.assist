@@ -110,9 +110,36 @@ class BettercamBackend(CaptureBackendBase):
             
             if self.camera is None:
                 raise RuntimeError("Failed to create bettercam instance")
+            
+            # Start the camera with error handling
+            try:
+                self.camera.start()
+                # Wait a moment for the background thread to initialize
+                time.sleep(0.1)
+                
+                # Test capture multiple times to ensure it works
+                for i in range(3):
+                    test_frame = self.camera.grab()
+                    if test_frame is not None:
+                        self.logger.debug(f"Bettercam test capture {i+1} successful")
+                        break
+                    time.sleep(0.05)
+                else:
+                    raise RuntimeError("Bettercam test captures all failed")
+                    
+            except Exception as start_error:
+                self.logger.error(f"Bettercam start/test failed: {start_error}")
+                # Clean up and raise to trigger fallback
+                if self.camera:
+                    try:
+                        self.camera.stop()
+                    except:
+                        pass
+                    self.camera = None
+                raise RuntimeError(f"Bettercam initialization failed: {start_error}")
                 
             self.region = region
-            self.logger.info(f"Bettercam initialized with region: {region.to_dict()}")
+            self.logger.info(f"Bettercam initialized and started with region: {region.to_dict()}")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize bettercam: {e}")
@@ -121,12 +148,14 @@ class BettercamBackend(CaptureBackendBase):
     def capture(self) -> Optional[np.ndarray]:
         """Capture frame using bettercam"""
         if self.camera is None:
+            self.logger.debug("Bettercam camera is None")
             return None
             
         try:
             frame = self.camera.grab()
             
             if frame is None:
+                self.logger.debug("Bettercam grab() returned None")
                 return None
                 
             # Ensure frame is contiguous BGR
@@ -136,7 +165,7 @@ class BettercamBackend(CaptureBackendBase):
             return np.ascontiguousarray(frame)
             
         except Exception as e:
-            self.logger.error(f"Capture error: {e}")
+            self.logger.error(f"Bettercam capture error: {e}")
             return None
     
     def cleanup(self) -> None:
@@ -212,10 +241,6 @@ class ScreenCapture:
         self.display_info = self._get_display_info()
         self._log_display_info()
         
-        # Select and initialize backend
-        self.backend_type = backend or self._select_best_backend()
-        self.backend = self._create_backend(self.backend_type)
-        
         # Get and validate region
         self.region = self._get_validated_region()
         
@@ -226,8 +251,9 @@ class ScreenCapture:
         self._last_fps_calc = time.time()
         self._current_fps = 0.0
         
-        # Initialize backend
-        self.backend.initialize(self.region)
+        # Select and initialize backend with fallback
+        self.backend_type = backend or self._select_best_backend()
+        self.backend = self._initialize_backend_with_fallback()
         
         # Warm up
         self._warmup()
@@ -324,9 +350,12 @@ class ScreenCapture:
     
     def _select_best_backend(self) -> CaptureBackend:
         """Select the best available capture backend"""
+        # For now, force MSS due to BetterCam DirectX issues on some systems
+        # TODO: Add better detection logic for when BetterCam will work
         if BETTERCAM_AVAILABLE:
-            self.logger.info("Selected backend: Bettercam (hardware accelerated)")
-            return CaptureBackend.BETTERCAM
+            self.logger.warning("BetterCam available but using MSS due to known DirectX compatibility issues")
+            self.logger.info("Selected backend: MSS (stable fallback)")
+            return CaptureBackend.MSS
         else:
             self.logger.info("Selected backend: MSS (fallback)")
             return CaptureBackend.MSS
@@ -389,12 +418,28 @@ class ScreenCapture:
         """Warm up capture pipeline"""
         self.logger.info(f"Warming up capture pipeline ({iterations} iterations)...")
         
-        for i in range(iterations):
+        successful_warmups = 0
+        max_warmup_attempts = iterations * 3  # Allow more attempts than iterations
+        
+        for i in range(max_warmup_attempts):
             frame = self.backend.capture()
             if frame is not None:
-                self.logger.debug(f"Warmup {i+1}: {frame.shape}")
+                successful_warmups += 1
+                self.logger.debug(f"Warmup {successful_warmups}/{iterations}: {frame.shape}")
+                
+                if successful_warmups >= iterations:
+                    self.logger.info(f"Warmup completed successfully ({successful_warmups}/{iterations})")
+                    return
             else:
-                self.logger.warning(f"Warmup {i+1}: Failed to capture")
+                self.logger.debug(f"Warmup attempt {i+1}: Failed to capture (this is normal during warmup)")
+            
+            # Small delay between attempts
+            time.sleep(0.01)
+        
+        if successful_warmups > 0:
+            self.logger.warning(f"Warmup partially successful ({successful_warmups}/{iterations}) - continuing anyway")
+        else:
+            self.logger.warning("Warmup failed completely - capture may not work properly")
     
     def capture(self) -> Optional[np.ndarray]:
         """Capture a frame with performance tracking"""
@@ -404,6 +449,7 @@ class ScreenCapture:
             frame = self.backend.capture()
             
             if frame is None:
+                self.logger.debug(f"Backend {self.backend_type} returned None frame")
                 return None
             
             # Track metrics
@@ -483,7 +529,33 @@ class ScreenCapture:
         """Context manager exit"""
         self.cleanup()
         return False
-
+    
+    def _initialize_backend_with_fallback(self) -> CaptureBackendBase:
+        """Initialize backend with automatic fallback to MSS if BetterCam fails"""
+        # Try primary backend first
+        try:
+            backend = self._create_backend(self.backend_type)
+            backend.initialize(self.region)
+            self.logger.info(f"Successfully initialized {self.backend_type.value} backend")
+            return backend
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize {self.backend_type.value} backend: {e}")
+            
+            # If BetterCam failed, fall back to MSS
+            if self.backend_type == CaptureBackend.BETTERCAM:
+                self.logger.info("Falling back to MSS backend...")
+                try:
+                    self.backend_type = CaptureBackend.MSS
+                    backend = self._create_backend(CaptureBackend.MSS)
+                    backend.initialize(self.region)
+                    self.logger.info("Successfully initialized MSS fallback backend")
+                    return backend
+                except Exception as fallback_error:
+                    self.logger.error(f"Fallback to MSS also failed: {fallback_error}")
+                    raise RuntimeError("All capture backends failed to initialize")
+            else:
+                # If we're already using MSS or another backend, no fallback available
+                raise RuntimeError(f"Failed to initialize {self.backend_type.value} backend: {e}")
 
 # Factory function for backward compatibility
 def get_frame(region: Optional[Dict[str, int]] = None, 

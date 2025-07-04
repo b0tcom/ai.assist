@@ -364,6 +364,9 @@ class CVTargetingSystem:
             # Initialize capture
             self.capture = ScreenCapture(config_manager=self.config_manager)
             
+            # Reset error count after successful capture initialization
+            self.error_count = 0
+            
             # Initialize detector
             self.detector = YOLOv8Detector(
                 config_manager=None,  # Let detector create its own to avoid circular import
@@ -376,18 +379,26 @@ class CVTargetingSystem:
                 safety_level=SafetyLevel.STANDARD
             )
             
-            # Attempt to connect to Arduino, but continue even if it fails
+            # Attempt to connect to Arduino with retry logic
             try:
+                self.logger.info("Attempting to connect to Arduino...")
                 arduino_connected = self.input_controller.connect()
                 if arduino_connected:
                     self.simulation_mode = False
                     self.logger.info("Arduino connected successfully")
                 else:
                     self.simulation_mode = True
-                    self.logger.warning("Arduino not available, running in simulation mode")
+                    self.logger.warning("Arduino not available - continuing in SIMULATION MODE")
+                    self.logger.info("To fix Arduino connection:")
+                    self.logger.info("  1. Close Arduino IDE or other programs using the port")
+                    self.logger.info("  2. Try running as Administrator")
+                    self.logger.info("  3. Check the Arduino is properly connected")
             except Exception as arduino_error:
                 self.simulation_mode = True
-                self.logger.warning(f"Arduino connection failed ({arduino_error}), running in simulation mode")
+                self.logger.warning(f"Arduino connection failed: {arduino_error}")
+                self.logger.warning("Continuing in SIMULATION MODE - all targeting will be logged only")
+                if "PermissionError" in str(arduino_error):
+                    self.logger.info("Permission Error - Try running as Administrator or close other Arduino programs")
             
             # Initialize frame processor
             self.frame_processor = FrameProcessor(
@@ -466,26 +477,26 @@ class CVTargetingSystem:
     
     def _get_ui_preference(self) -> str:
         """Get UI preference from user"""
+        # Check command line arguments first
         if len(sys.argv) > 1:
-            return sys.argv[1].lower()
+            mode = sys.argv[1].lower()
+            if mode in ['gui', 'overlay', 'headless']:
+                return mode
         
-        print("\n=== AI Aim Assist System ===")
-        print("Select UI mode:")
-        print("1. GUI (Configuration interface)")
-        print("2. Overlay (In-game overlay)")
-        print("3. Headless (No UI)")
-        print("Q. Quit")
+        # Check for --ui argument
+        for i, arg in enumerate(sys.argv):
+            if arg == '--ui' and i + 1 < len(sys.argv):
+                mode = sys.argv[i + 1].lower()
+                if mode in ['gui', 'overlay', 'headless']:
+                    return mode
         
-        choice = input("\nEnter choice: ").strip().lower()
-        
-        if choice == '1':
+        # Default to GUI if available, otherwise headless
+        if GUI_AVAILABLE:
+            self.logger.info("No UI mode specified, defaulting to GUI")
             return 'gui'
-        elif choice == '2':
-            return 'overlay'
-        elif choice == '3':
-            return 'headless'
         else:
-            sys.exit(0)
+            self.logger.info("GUI not available, defaulting to headless mode")
+            return 'headless'
     
     def _run_with_gui(self) -> None:
         """Run with GUI interface"""
@@ -566,6 +577,14 @@ class CVTargetingSystem:
         frame_times = deque(maxlen=100)
         last_metrics_log = time.time()
         
+        # Startup grace period for more lenient error handling
+        startup_time = time.time()
+        startup_grace_period = 10.0  # 10 seconds of more lenient error handling
+        consecutive_errors = 0
+        successful_captures = 0
+        
+        self.logger.info("Main loop started with startup grace period")
+        
         while not self.shutdown_event.is_set():
             try:
                 if self.state != ApplicationState.RUNNING:
@@ -580,14 +599,35 @@ class CVTargetingSystem:
                 capture_time = (time.perf_counter() - capture_start) * 1000
                 
                 if frame is None:
+                    consecutive_errors += 1
                     self.error_count += 1
-                    if self.error_count > self.max_errors:
-                        self.logger.error("Too many capture errors, shutting down...")
-                        break
+                    
+                    # During startup grace period, be more lenient
+                    current_time = time.time()
+                    in_grace_period = (current_time - startup_time) < startup_grace_period
+                    
+                    if in_grace_period:
+                        # During startup, only fail if we have too many consecutive errors
+                        if consecutive_errors > 20:  # Allow more consecutive failures during startup
+                            self.logger.error(f"Too many consecutive capture errors during startup ({consecutive_errors}), shutting down...")
+                            break
+                        elif consecutive_errors % 5 == 0:  # Log every 5th error during startup
+                            self.logger.warning(f"Capture errors during startup: {consecutive_errors}/20 (system may still be warming up)")
+                    else:
+                        # After grace period, use normal error handling
+                        if self.error_count > self.max_errors:
+                            self.logger.error(f"Too many capture errors ({self.error_count}/{self.max_errors}), shutting down...")
+                            break
                     continue
                 
-                # Reset error count on successful capture
-                self.error_count = 0
+                # Reset error counts on successful capture
+                consecutive_errors = 0
+                self.error_count = max(0, self.error_count - 1)  # Gradually reduce error count on success
+                successful_captures += 1
+                
+                # Log startup completion
+                if successful_captures == 10:
+                    self.logger.info("Capture pipeline stabilized - 10 successful captures completed")
                 
                 # Process frame
                 if self.frame_processor is not None:
