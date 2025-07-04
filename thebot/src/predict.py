@@ -16,8 +16,13 @@ try:
     from .detect import Detection, YOLOv8Detector
     from .config_manager import ConfigManager
     from .logger_util import get_logger
-except ImportError as e:
-    raise ImportError(f"Required modules not found: {e}. Ensure detect.py and config modules are available.")
+except ImportError:
+    try:
+        from detect import Detection, YOLOv8Detector
+        from config_manager import ConfigManager
+        from logger_util import get_logger
+    except ImportError as e:
+        raise ImportError(f"Required modules not found: {e}. Ensure detect.py and config modules are available.")
 
 # Constants
 DEFAULT_BOUNDING_BOX_SIZE = 50

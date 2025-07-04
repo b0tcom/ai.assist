@@ -27,7 +27,11 @@ try:
 except ImportError:
     PYNPUT_AVAILABLE = False
 
-from .logger_util import get_logger
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+except ImportError:
+    from logger_util import get_logger
 
 
 class InputBackend(Enum):
@@ -547,21 +551,7 @@ class HotkeyManager:
         """Trigger action callbacks"""
         callbacks = self.callbacks.get(action, [])
         
-        for callback in callbacks:
-            try:
-                if holding is not None:
-                    # For hold-to-activate actions, try to pass the holding state
-                    try:
-                        callback(holding)  # type: ignore
-                    except TypeError:
-                        # Callback doesn't accept parameters, call without
-                        callback()
-                else:
-                    # Normal action trigger
-                    callback()
-            except Exception as e:
-                self.logger.error(f"Error executing callback for action '{action}': {e}")
-    
+       
     def register_callback(self, action: str, callback: Callable) -> None:
         """Register action callback"""
         self.callbacks[action].append(callback)

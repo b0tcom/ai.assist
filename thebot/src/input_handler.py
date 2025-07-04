@@ -28,8 +28,13 @@ except ImportError:
     KEYBOARD_AVAILABLE = False
     keyboard = None
 
-from .logger_util import get_logger
-from .config_manager import ConfigManager, ArduinoConfig, AimConfig
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+    from .config_manager import ConfigManager, ArduinoConfig, AimConfig
+except ImportError:
+    from logger_util import get_logger
+    from config_manager import ConfigManager, ArduinoConfig, AimConfig
 
 
 class CommandType(Enum):

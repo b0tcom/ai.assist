@@ -122,13 +122,20 @@ class PerformanceMonitor:
             if metric_type in self.history:
                 self.history[metric_type].append(value)
                 
-                # Check for anomalies
+                # Check for anomalies (adjusted thresholds for high-performance systems)
                 if len(self.history[metric_type]) >= 10:
                     avg = sum(self.history[metric_type]) / len(self.history[metric_type])
-                    if value > avg * 2 or value < avg * 0.5:
-                        # Anomaly detected
-                        for callback in self.anomaly_callbacks:
-                            callback(metric_type, value)
+                    # More lenient thresholds for very fast systems
+                    if metric_type == 'capture':
+                        # For capture times, only alert if >5ms or very extreme variations
+                        if value > 5.0 or (avg > 0 and (value > avg * 5 or value < avg * 0.2)):
+                            for callback in self.anomaly_callbacks:
+                                callback(metric_type, value)
+                    else:
+                        # Standard thresholds for other metrics
+                        if value > avg * 3 or value < avg * 0.3:
+                            for callback in self.anomaly_callbacks:
+                                callback(metric_type, value)
     
     def get_metrics(self) -> SystemMetrics:
         """Get current metrics"""
@@ -326,7 +333,7 @@ class CVTargetingSystem:
         
         # Error handling
         self.error_count = 0
-        self.max_errors = 10
+        self.max_errors = 50  # Increased from 10 to handle intermittent capture issues
         
         # Signal handling
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -579,6 +586,9 @@ class CVTargetingSystem:
                         break
                     continue
                 
+                # Reset error count on successful capture
+                self.error_count = 0
+                
                 # Process frame
                 if self.frame_processor is not None:
                     if not self.frame_processor.process_frame(frame):
@@ -744,7 +754,10 @@ class CVTargetingSystem:
                 self.logger.error("Cannot enable overlay: system not initialized")
                 return False
                 
-            from .pygame_overlay import OverlaySystem, OverlayMode
+            try:
+                from .pygame_overlay import OverlaySystem, OverlayMode
+            except ImportError:
+                from pygame_overlay import OverlaySystem, OverlayMode
             screen_region = self.config_manager.get_screen_region()
             self.overlay = OverlaySystem(
                 config_manager=self.config_manager

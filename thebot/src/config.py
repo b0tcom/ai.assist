@@ -7,8 +7,12 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 # Import the new configuration system
-from .config_manager import ConfigManager, ScreenRegion, ModelConfig, AimConfig
-from .logger_util import get_logger
+try:
+    from .config_manager import ConfigManager, ScreenRegion, ModelConfig, AimConfig
+    from .logger_util import get_logger
+except ImportError:
+    from config_manager import ConfigManager, ScreenRegion, ModelConfig, AimConfig
+    from logger_util import get_logger
 
 # Show deprecation warning
 warnings.warn(

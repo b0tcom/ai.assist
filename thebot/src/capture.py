@@ -29,8 +29,14 @@ except ImportError:
     win32con = None
 
 import mss
-from .logger_util import get_logger
-from .config_manager import ConfigManager, ScreenRegion
+
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+    from .config_manager import ConfigManager, ScreenRegion
+except ImportError:
+    from logger_util import get_logger
+    from config_manager import ConfigManager, ScreenRegion
 
 
 class CaptureBackend(Enum):

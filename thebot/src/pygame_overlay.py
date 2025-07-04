@@ -25,9 +25,15 @@ except ImportError:
     OPENGL = 0
     DOUBLEBUF = 0
 
-from .logger_util import get_logger
-from .config_manager import ConfigManager, ScreenRegion
-from .detect import Detection
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+    from .config_manager import ConfigManager, ScreenRegion
+    from .detect import Detection
+except ImportError:
+    from logger_util import get_logger
+    from config_manager import ConfigManager, ScreenRegion
+    from detect import Detection
 
 
 class OverlayMode(Enum):

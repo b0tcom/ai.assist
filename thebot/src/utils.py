@@ -33,11 +33,15 @@ except ImportError:
     WIN32_AVAILABLE = False
     win32api = None
 
-from .logger_util import get_logger
-
-
-# Re-export logger for backward compatibility
-from .logger_util import Logger, setup_logging, get_logger as logger
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+    # Re-export logger for backward compatibility
+    from .logger_util import Logger, setup_logging, get_logger as logger
+except ImportError:
+    from logger_util import get_logger
+    # Re-export logger for backward compatibility
+    from logger_util import Logger, setup_logging, get_logger as logger
 
 
 @dataclass

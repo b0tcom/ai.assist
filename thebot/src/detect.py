@@ -19,8 +19,13 @@ import traceback
 import threading
 import weakref
 
-from .logger_util import get_logger
-from .config_manager import ConfigManager, ModelConfig
+# Handle both direct execution and module import
+try:
+    from .logger_util import get_logger
+    from .config_manager import ConfigManager, ModelConfig
+except ImportError:
+    from logger_util import get_logger
+    from config_manager import ConfigManager, ModelConfig
 
 
 class DependencyManager:
