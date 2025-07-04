@@ -2,29 +2,82 @@ import json
 import os
 from datetime import datetime
 from typing import Optional, Callable
+from pathlib import Path
 import configparser
 import tkinter as tk
+from tkinter import ttk, messagebox
 
-def load_config():
-    cp = configparser.ConfigParser()
-    cp.read("src/configs/config.ini")
-    return cp
+# Import modular configuration
+try:
+    from .config_manager import ConfigManager
+    from .logger_util import get_logger
+    MODULAR_CONFIG_AVAILABLE = True
+except ImportError:
+    MODULAR_CONFIG_AVAILABLE = False
 
-def save_config(cp):
-    with open("src/configs/config.ini", "w") as f:
+def load_config(config_path: str = "configs/config.ini"):
+    """Load configuration with flexible path handling"""
+    if MODULAR_CONFIG_AVAILABLE:
+        return ConfigManager(config_path)
+    else:
+        # Fallback to legacy configparser
+        cp = configparser.ConfigParser()
+        # Try multiple possible paths
+        possible_paths = [
+            config_path,
+            f"src/{config_path}",
+            f"thebot/src/{config_path}",
+            Path(__file__).parent.parent / config_path
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                cp.read(path)
+                return cp
+        
+        # If no config found, create empty one
+        return configparser.ConfigParser()
+
+def save_config(cp, config_path: str = "configs/config.ini"):
+    """Save configuration with flexible path handling"""
+    # Try multiple possible paths
+    possible_paths = [
+        config_path,
+        f"src/{config_path}",
+        f"thebot/src/{config_path}",
+        Path(__file__).parent.parent / config_path
+    ]
+    
+    # Find existing file or use first path
+    save_path = config_path
+    for path in possible_paths:
+        if os.path.exists(path):
+            save_path = path
+            break
+    
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    with open(save_path, "w") as f:
         cp.write(f)
 
 def update_field(cp, section, key, value):
-    if section not in cp:
-        cp.add_section(section)
-    cp[section][key] = str(value)
-    save_config(cp)
+    """Update configuration field with support for both ConfigManager and ConfigParser"""
+    if MODULAR_CONFIG_AVAILABLE and hasattr(cp, 'set'):
+        # Using modular ConfigManager
+        cp.set(section, key, value)
+    else:
+        # Using legacy ConfigParser
+        if section not in cp:
+            cp.add_section(section)
+        cp[section][key] = str(value)
+        save_config(cp)
 
 class CVTargetingGUI:
     def __init__(self, config=None):
         self.root = tk.Tk()
         self.root.title("AI Aim Assist Configuration")
-        self.config = config or {}
+        self.config = config or load_config()
         self.entries = {}
         self.sections = [
             ("Application", [
@@ -106,52 +159,49 @@ class CVTargetingGUI:
                 ("enabled", "Hip Mode Enabled"),
             ]),
         ]
-        row = 0
-        for section, fields in self.sections:
-            tk.Label(self.root, text=section, font=("Arial", 12, "bold")).grid(row=row, column=0, sticky="w", pady=(10,0))
-            row += 1
-            for key, label in fields:
-                tk.Label(self.root, text=label).grid(row=row, column=0, sticky="w")
-                val = self._get_config_value(section, key)
-                entry = tk.Entry(self.root, width=40)
-                entry.insert(0, str(val) if val is not None else "")
-                entry.grid(row=row, column=1, padx=5, pady=2)
-                self.entries[(section, key)] = entry
-                row += 1
-        tk.Button(self.root, text="Save", command=self.save).grid(row=row, column=0, pady=20)
-        tk.Button(self.root, text="Close", command=self.root.quit).grid(row=row, column=1, pady=20)
+        self._build_gui()
 
     def _get_config_value(self, section, key):
-        # Try to get from config dict, fallback to blank
-        if section in self.config and key in self.config[section]:
-            return self.config[section][key]
-        return ""
+        """Get configuration value with support for both ConfigManager and ConfigParser"""
+        try:
+            if MODULAR_CONFIG_AVAILABLE and hasattr(self.config, 'get') and hasattr(self.config, '_config'):
+                # Using modular ConfigManager
+                return self.config.get(section, key)
+            else:
+                # Using legacy ConfigParser
+                try:
+                    return self.config.get(section, key)
+                except (configparser.NoSectionError, configparser.NoOptionError):
+                    return ""
+        except Exception:
+            return ""
+
+    def _build_gui(self):
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill=tk.BOTH, expand=True)
+        for section, fields in self.sections:
+            frame = ttk.Frame(notebook)
+            notebook.add(frame, text=section)
+            row = 0
+            for key, label in fields:
+                tk.Label(frame, text=label).grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+                entry = tk.Entry(frame, width=40)
+                entry.grid(row=row, column=1, padx=5, pady=2)
+                entry.insert(0, self._get_config_value(section, key))
+                self.entries[(section, key)] = entry
+                row += 1
+        save_btn = tk.Button(self.root, text="Save", command=self.save)
+        save_btn.pack(pady=10)
 
     def save(self):
-        # Save all entries back to the config dict and file
         for (section, key), entry in self.entries.items():
-            val = entry.get()
-            if section not in self.config:
-                self.config[section] = {}
-            self.config[section][key] = val
-        # Save to INI file
-        cp = configparser.ConfigParser()
-        for section in self.config:
-            cp[section] = {k: str(v) for k, v in self.config[section].items()}
-        with open("src/configs/config.ini", "w") as f:
-            cp.write(f)
+            value = entry.get()
+            update_field(self.config, section, key, value)
+        messagebox.showinfo("Saved", "Configuration saved successfully.")
 
     def run(self):
         self.root.mainloop()
-        if hasattr(self, 'enable_overlay') and self.enable_overlay:
-            try:
-                from pygame_overlay import PygameOverlay
-                region = self.config.get('screen_region', {'width': 960, 'height': 720})
-                fov = self.config.get('fov_size', 280)
-                overlay = PygameOverlay(width=int(region.get('width', 960)), height=int(region.get('height', 720)), fov=int(fov))
-                overlay.run()
-            except Exception as e:
-                print(f"Failed to launch Pygame overlay: {e}")
 
     def enable_pygame_overlay(self):
-        self.enable_overlay = True
+        # Placeholder for overlay integration
+        pass

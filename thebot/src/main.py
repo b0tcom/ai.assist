@@ -1,839 +1,786 @@
-import json
-import logging
-import threading
+"""
+Production-Grade AI Aim Assist Application Orchestrator
+Purpose: Thread-safe application lifecycle management with performance monitoring
+"""
+import sys
+import os
 import time
-import numpy as np
-import mss
+import threading
 import queue
+import signal
+from typing import Optional, Dict, Any, List, Callable
+from dataclasses import dataclass, field
+from enum import Enum, auto
+import multiprocessing as mp
+from pathlib import Path
+import argparse
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from collections import deque
+
+import numpy as np
 import cv2
-import configparser
-import pygame
 
-# DPI/screen detection
-import ctypes
+# Optional ML imports
 try:
-    import win32api
-    import win32con
+    import torch
+    TORCH_AVAILABLE = True
 except ImportError:
-    win32api = None
-    win32con = None
+    TORCH_AVAILABLE = False
+    torch = None
 
-from input_handler import InputController
-from capture import ScreenCapture, get_actual_display_resolution, get_frame
-from detect import TargetPredictor, YOLOv8Detector
-from pygame_overlay import PygameOverlay
-from toggle import ToggleManager
-from gui import load_config, save_config, update_field
-from config_manager import ConfigManager  # NEW: Use ConfigManager for config access
+# Production imports - handle both direct execution and module import
+try:
+    # When run as module
+    from .logger_util import get_logger, setup_logging
+    from .config_manager import ConfigManager, ScreenRegion
+    from .capture import ScreenCapture, DisplayInfo
+    from .detect import YOLOv8Detector, Detection, InferenceBackend
+    from .input_handler import InputController, SafetyLevel
+    from .pygame_overlay import OverlayMode, OverlaySystem
+    from .toggle import HotkeyManager
+except ImportError:
+    # When run directly
+    from logger_util import get_logger, setup_logging
+    from config_manager import ConfigManager, ScreenRegion
+    from capture import ScreenCapture, DisplayInfo
+    from detect import YOLOv8Detector, Detection, InferenceBackend
+    from input_handler import InputController, SafetyLevel
+    from pygame_overlay import OverlayMode, OverlaySystem
+    from toggle import HotkeyManager
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('main')
+# Optional GUI - handle both direct execution and module import
+try:
+    import tkinter as tk
+    try:
+        # When run as module
+        from .gui import CVTargetingGUI as ProductionGUI
+    except ImportError:
+        # When run directly
+        from gui import CVTargetingGUI as ProductionGUI
+    GUI_AVAILABLE = True
+except ImportError:
+    GUI_AVAILABLE = False
 
-<<<<<<< HEAD
-def get_desktop_resolution():
-    if win32api:
-        return win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
-    else:
-        with mss.mss() as sct:
-            mon = sct.monitors[1]
-            return mon['width'], mon['height']
 
-# --- Use only actual display resolution for region math ---
-def get_centered_region(fov=None, offset_x=0, offset_y=0, use_desktop_coords=False):
-    if use_desktop_coords:
-        w, h = get_desktop_resolution()
-        logger.info(f"[REGION] Using DESKTOP coordinates: {w}x{h}")
-    else:
-        w, h = get_actual_display_resolution()
-        logger.info(f"[REGION] Using ACTUAL display coordinates: {w}x{h}")
-    fov = fov or 280
-    left = (w - fov) // 2 + offset_x
-    top = (h - fov) // 2 + offset_y
-    left = max(0, min(left, w - fov))
-    top = max(0, min(top, h - fov))
-    region = {'left': int(left), 'top': int(top), 'width': int(fov), 'height': int(fov)}
-    logger.info(f"[AUTO] Centered region for {w}x{h} FOV={fov}: {region}")
-    return region
+class ApplicationState(Enum):
+    """Application lifecycle states"""
+    INITIALIZING = auto()
+    READY = auto()
+    RUNNING = auto()
+    PAUSED = auto()
+    ERROR = auto()
+    SHUTTING_DOWN = auto()
 
-print("=== Script is running ===")
 
-class CVTargetingSystem:
-    """Main class for the AI Aim Assist System."""
-=======
-
-class CVTargetingSystem:
-    """Main class for the AI Aim Assist System. Handles config, detection, and hardware integration."""
-
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-    def __init__(self):
-        self.config_manager = ConfigManager("configs/config.ini")  # Use ConfigManager
-        self.config = self.config_manager.as_dict()  # For legacy code compatibility
-        self.model = None
-        self.capture = None
-        self.detector = None
-        self.toggle_mgr = None
-        self.frame_queue = queue.Queue(maxsize=2)
-        self.result_queue = None
-        self.capture_thread = None
-        self.detect_thread = None
-        self.monitor = None
-        self.running = False
-        self.predictor = None
-        self.input_ctrl = None
-        self.gui = None
-        self.capture_window_name = "Live Detection"
-<<<<<<< HEAD
-        w, h = get_actual_display_resolution()
-        self.display_w, self.display_h = w, h
-        logger.info(f"Detected actual display resolution: {self.display_w}x{self.display_h}")
-        self.overlay = None
-
-    def load_config(self):
-        # Use ConfigManager for all config/region logic
-        self.config_manager.reload()
-        # Always get region as a dict of ints
-        region = self.config_manager.get_screen_region()
-        logger.info(f"[INFO] Using capture region: {region}")
-        # Normalize config to dict with correct types for all expected keys
-        config_dict = self.config_manager.as_dict()
-        # If using INI, flatten and convert types as needed
-        if isinstance(self.config_manager.config, configparser.ConfigParser):
-            # Convert all values to dicts with correct types
-            def parse_int(val, default=0):
-                try:
-                    return int(val)
-                except Exception:
-                    return default
-            def parse_float(val, default=0.0):
-                try:
-                    return float(val)
-                except Exception:
-                    return default
-            # Build a normalized config dict
-            config_dict = {
-                "yolo": {
-                    "model_path": self.config_manager.get("model_settings", "model_path", "thebot/src/models/best.pt"),
-                    "confidence_threshold": parse_float(self.config_manager.get("model_settings", "confidence", 0.4)),
-                    "device": self.config_manager.get("model_settings", "device", "cuda")
-                },
-                "target_class_id": parse_int(self.config_manager.get("Application", "target_class_id", 0)),
-                "target_class_name": "player",
-                "fallback_model_path": self.config_manager.get("model_settings", "fallback_model_path", "thebot/src/models/yolo/yolov8n.pt"),
-                "precision_mode": self.config_manager.get("model_settings", "precision_mode", "float32"),
-                "warmup_iterations": parse_int(self.config_manager.get("model_settings", "warmup_iterations", 10)),
-                "target_priority": parse_int(self.config_manager.get("model_settings", "target_priority", 1)),
-                "detection_mode": self.config_manager.get("model_settings", "detection_mode", "tracking"),
-                "min_player_size": [parse_int(x) for x in str(self.config_manager.get("model_settings", "min_player_size", "10,10")).split(",")],
-                "max_player_size": [parse_int(x) for x in str(self.config_manager.get("model_settings", "max_player_size", "500,500")).split(",")],
-                "ethical_mode": self.config_manager.get("model_settings", "ethical_mode", "production"),
-                "arduino_port": self.config_manager.get("arduino", "arduino_port", "COM5"),
-                "screen_region": region,
-                "fov_size": region["width"],
-=======
-
-    def get_screen_size(self):
-        """Detect the real screen size using win32api, fallback to mss if unavailable."""
-        if win32api:
-            return win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
-        else:
-            with mss.mss() as sct:
-                mon = sct.monitors[1]
-                return mon['width'], mon['height']
-
-    def get_centered_region(self, fov=None):
-        """Return a centered region dict using the real screen size and given FOV."""
-        screen_w, screen_h = self.get_screen_size()
-        if fov is None:
-            fov = self.config.get('fov_size', 280)
-        left = (screen_w - fov) // 2
-        top = (screen_h - fov) // 2
-        # Clamp to ensure inside bounds
-        if left < 0:
-            left = 0
-        if top < 0:
-            top = 0
-        if left + fov > screen_w:
-            left = screen_w - fov
-        if top + fov > screen_h:
-            top = screen_h - fov
-        region = {
-            'left': int(left),
-            'top': int(top),
-            'width': int(fov),
-            'height': int(fov)
+@dataclass
+class SystemMetrics:
+    """Comprehensive system performance metrics"""
+    capture_fps: float = 0.0
+    detection_fps: float = 0.0
+    input_fps: float = 0.0
+    total_latency_ms: float = 0.0
+    cpu_usage: float = 0.0
+    gpu_usage: float = 0.0
+    memory_usage_mb: float = 0.0
+    dropped_frames: int = 0
+    errors: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for logging/display"""
+        return {
+            'capture_fps': round(self.capture_fps, 1),
+            'detection_fps': round(self.detection_fps, 1),
+            'input_fps': round(self.input_fps, 1),
+            'total_latency_ms': round(self.total_latency_ms, 2),
+            'cpu_usage': round(self.cpu_usage, 1),
+            'gpu_usage': round(self.gpu_usage, 1),
+            'memory_usage_mb': round(self.memory_usage_mb, 1),
+            'dropped_frames': self.dropped_frames,
+            'error_count': len(self.errors)
         }
-        logger.info(
-            f"[AUTO] Centered region for {screen_w}x{screen_h} FOV={fov}: {region}"
-        )
-        return region
 
-    def load_config(self):
-        """Load configuration from INI file. Always use a centered region and all advanced settings."""
-        config_path = "configs/config.ini"
-        parser = configparser.ConfigParser()
-        parser.read(config_path)
-        # Build config dict from INI
-        # Use FOV from config, but always recalculate region at runtime
-        fov = parser.getint('Application',
-                            'capture_region_width',
-                            fallback=280)
-        region = self.get_centered_region(fov)
-        logger.info(f"[INFO] Using capture region: {region}")
 
-        # Parse advanced settings from INI
-        def parse_json_or_str(val, fallback):
+class PerformanceMonitor:
+    """Real-time performance monitoring with anomaly detection"""
+    
+    def __init__(self, window_size: int = 100):
+        self.window_size = window_size
+        self.metrics = SystemMetrics()
+        self.history: Dict[str, deque] = {
+            'capture': deque(maxlen=window_size),
+            'detection': deque(maxlen=window_size),
+            'input': deque(maxlen=window_size),
+            'latency': deque(maxlen=window_size)
+        }
+        self.anomaly_callbacks: List[Callable[[str, float], None]] = []
+        self._lock = threading.Lock()
+    
+    def update(self, metric_type: str, value: float) -> None:
+        """Update metric with anomaly detection"""
+        with self._lock:
+            if metric_type in self.history:
+                self.history[metric_type].append(value)
+                
+                # Check for anomalies
+                if len(self.history[metric_type]) >= 10:
+                    avg = sum(self.history[metric_type]) / len(self.history[metric_type])
+                    if value > avg * 2 or value < avg * 0.5:
+                        # Anomaly detected
+                        for callback in self.anomaly_callbacks:
+                            callback(metric_type, value)
+    
+    def get_metrics(self) -> SystemMetrics:
+        """Get current metrics"""
+        with self._lock:
+            if self.history['capture']:
+                self.metrics.capture_fps = 1000.0 / (sum(self.history['capture']) / len(self.history['capture']))
+            if self.history['detection']:
+                self.metrics.detection_fps = 1000.0 / (sum(self.history['detection']) / len(self.history['detection']))
+            if self.history['input']:
+                self.metrics.input_fps = 1000.0 / (sum(self.history['input']) / len(self.history['input']))
+            if self.history['latency']:
+                self.metrics.total_latency_ms = sum(self.history['latency']) / len(self.history['latency'])
+            
+            # Get system resources
             try:
-                return json.loads(val)
-            except Exception:
-                return fallback
+                import psutil
+                process = psutil.Process()
+                self.metrics.cpu_usage = process.cpu_percent()
+                self.metrics.memory_usage_mb = process.memory_info().rss / 1024 / 1024
+            except ImportError:
+                pass
+            
+            return self.metrics
+    
+    def register_anomaly_callback(self, callback: Callable[[str, float], None]) -> None:
+        """Register callback for anomaly detection"""
+        self.anomaly_callbacks.append(callback)
 
-        self.config = {
-            "yolo": {
-                "model_path":
-                parser.get('model_settings',
-                           'model_path',
-                           fallback="thebot/src/models/best.pt"),
-                "confidence_threshold":
-                parser.getfloat('model_settings', 'confidence', fallback=0.4),
-                "device":
-                parser.get('model_settings', 'device', fallback="cuda")
-            },
-            "target_class_id":
-            parser.getint('Application', 'target_class_id', fallback=0),
-            "target_class_name":
-            "player",
-            "fallback_model_path":
-            parser.get('model_settings',
-                       'fallback_model_path',
-                       fallback="thebot/src/models/yolo/yolov8n.pt"),
-            "precision_mode":
-            parser.get('model_settings', 'precision_mode', fallback="float32"),
-            "warmup_iterations":
-            parser.getint('model_settings', 'warmup_iterations', fallback=10),
-            "target_priority":
-            parser.getint('model_settings', 'target_priority', fallback=1),
-            "detection_mode":
-            parser.get('model_settings', 'detection_mode',
-                       fallback="tracking"),
-            "min_player_size": [
-                int(x) for x in parser.get('model_settings',
-                                           'min_player_size',
-                                           fallback="10,10").split(',')
-            ],
-            "max_player_size": [
-                int(x) for x in parser.get('model_settings',
-                                           'max_player_size',
-                                           fallback="500,500").split(',')
-            ],
-            "ethical_mode":
-            parser.get('model_settings', 'ethical_mode',
-                       fallback="production"),
-            "arduino_port":
-            parser.get('arduino', 'arduino_port', fallback="COM5"),
-            "screen_region":
-            region,
-            "fov_size":
-            fov,
-            # Advanced settings
-            "aim_settings": {
-                "sensitivity":
-                parser.getfloat('aim_settings', 'sensitivity', fallback=1.0),
-                "max_distance":
-                parser.getint('aim_settings', 'max_distance', fallback=500),
-                "shooting_height_ratios":
-                parse_json_or_str(
-                    parser.get(
-                        'aim_settings',
-                        'shooting_height_ratios',
-                        fallback='{"head":0.15,"neck":0.25,"chest":0.35}'), {
-                            "head": 0.15,
-                            "neck": 0.25,
-                            "chest": 0.35
-                        }),
-                "altura_tiro":
-                parser.getfloat('aim_settings', 'altura_tiro', fallback=1.5),
-                "target_areas":
-                parse_json_or_str(
-                    parser.get('aim_settings',
-                               'target_areas',
-                               fallback='["head","neck","chest"]'),
-                    ["head", "neck", "chest"]),
-                "smoothing_factor":
-                parser.getfloat('aim_settings', 'smoothing_factor',
-                                fallback=5),
-                "fov_size":
-                parser.getfloat('aim_settings', 'fov_size', fallback=280)
-            },
-            "mode_settings": {
-                "right_click":
-                parse_json_or_str(
-                    parser.get(
-                        'mode_settings',
-                        'right_click',
-                        fallback='{"click_button": "0x02", "sensitivity": 1.0}'
-                    ), {
-                        "click_button": "0x02",
-                        "sensitivity": 1.0
-                    }),
-                "left_click":
-                parse_json_or_str(
-                    parser.get(
-                        'mode_settings',
-                        'left_click',
-                        fallback='{"click_button": "0x01", "sensitivity": 0.5}'
-                    ), {
-                        "click_button": "0x01",
-                        "sensitivity": 0.5
-                    })
-            },
-            "key_bindings": {
-                "activation_key":
-                parser.get('key_bindings', 'activation_key', fallback='f1'),
-                "deactivation_key":
-                parser.get('key_bindings', 'deactivation_key', fallback='f2')
-            },
-            "anti_recoil": {
-                "enabled":
-                parser.getboolean('anti_recoil', 'enabled', fallback=True),
-                "vertical_strength":
-                parser.getfloat('anti_recoil',
-                                'vertical_strength',
-                                fallback=0.5),
-                "horizontal_strength":
-                parser.getfloat('anti_recoil',
-                                'horizontal_strength',
-                                fallback=0.2),
-                "pattern_enabled":
-                parser.getboolean('anti_recoil',
-                                  'pattern_enabled',
-                                  fallback=False)
-            },
-            "rapid_fire": {
-                "enabled":
-                parser.getboolean('rapid_fire', 'enabled', fallback=False),
-                "fire_rate":
-                parser.getfloat('rapid_fire', 'fire_rate', fallback=0.1)
-            },
-            "hip_mode_enabled":
-            parser.getboolean('hip_mode_enabled', 'enabled', fallback=True),
-            "delay":
-            parser.getfloat('aim_settings', 'delay', fallback=5e-05),
-            "fov_size":
-            parser.getfloat('aim_settings', 'fov_size', fallback=280),
-            "aim_height":
-            parser.getfloat('aim_settings', 'aim_height', fallback=0.25),
-            "kalman_filter": {
-                "transition_covariance":
-                parser.getfloat('aim_settings',
-                                'kalman_transition_cov',
-                                fallback=0.01),
-                "observation_covariance":
-                parser.getfloat('aim_settings',
-                                'kalman_observation_cov',
-                                fallback=0.01)
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-            }
-        else:
-            # JSON config, just update region
-            config_dict["screen_region"] = region
-            config_dict["fov_size"] = {"width": region["width"]}
-        self.config = config_dict
 
-    def validate_model(self):
-        if self.model is None:
-            logger.error("Model not loaded for validation")
-            return False
-        test_img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+class FrameProcessor:
+    """High-performance frame processing pipeline"""
+    
+    def __init__(self, 
+                 detector: YOLOv8Detector,
+                 input_controller: InputController,
+                 config_manager: ConfigManager,
+                 simulation_mode: bool = False):
+        
+        self.detector = detector
+        self.input_controller = input_controller
+        self.config_manager = config_manager
+        self.simulation_mode = simulation_mode
+        self.logger = get_logger(__name__)
+        
+        # Processing queues
+        self.frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=2)
+        self.detection_queue: queue.Queue[List[Detection]] = queue.Queue(maxsize=10)
+        
+        # Threading
+        self.detection_thread: Optional[threading.Thread] = None
+        self.targeting_thread: Optional[threading.Thread] = None
+        self.running = False
+        
+        # Performance
+        self.frame_count = 0
+        self.last_fps_update = time.time()
+        
+    def start(self) -> None:
+        """Start processing threads"""
+        self.running = True
+        
+        self.detection_thread = threading.Thread(
+            target=self._detection_worker,
+            name="DetectionWorker",
+            daemon=True
+        )
+        self.targeting_thread = threading.Thread(
+            target=self._targeting_worker,
+            name="TargetingWorker",
+            daemon=True
+        )
+        
+        self.detection_thread.start()
+        self.targeting_thread.start()
+        
+        self.logger.info("Frame processor started")
+    
+    def stop(self) -> None:
+        """Stop processing threads"""
+        self.running = False
+        
+        # Clear queues
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                break
+        
+        # Wait for threads
+        if self.detection_thread:
+            self.detection_thread.join(timeout=2.0)
+        if self.targeting_thread:
+            self.targeting_thread.join(timeout=2.0)
+        
+        self.logger.info("Frame processor stopped")
+    
+    def process_frame(self, frame: np.ndarray) -> bool:
+        """Add frame to processing pipeline"""
         try:
-            results = self.model(test_img, verbose=False)
-            if results is not None:
-                valid = results[0] is not None if isinstance(results, list) else True
-                if valid:
-                    logger.info(
-                        f"Model validation successful. Model classes: {getattr(self.model, 'names', None)}"
-                    )
-                    return True
+            self.frame_queue.put_nowait(frame)
+            self.frame_count += 1
+            return True
+        except queue.Full:
+            return False
+    
+    def _detection_worker(self) -> None:
+        """Detection processing thread"""
+        while self.running:
+            try:
+                # Get frame
+                frame = self.frame_queue.get(timeout=0.01)
+                
+                # Run detection
+                detections = self.detector.detect(frame)
+                
+                # Queue detections
+                if detections:
+                    try:
+                        self.detection_queue.put_nowait(detections)
+                    except queue.Full:
+                        # Drop oldest
+                        try:
+                            self.detection_queue.get_nowait()
+                            self.detection_queue.put_nowait(detections)
+                        except queue.Empty:
+                            pass
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.error(f"Detection error: {e}")
+    
+    def _targeting_worker(self) -> None:
+        """Targeting logic thread"""
+        screen_region = self.config_manager.get_screen_region()
+        screen_center = (screen_region.width // 2, screen_region.height // 2)
+        
+        while self.running:
+            try:
+                # Get detections
+                detections = self.detection_queue.get(timeout=0.01)
+                
+                # Select best target
+                best_target = self.detector.select_best_target(
+                    detections, screen_center
+                )
+                
+                if best_target:
+                    # Predict position
+                    predicted_pos = self.detector.predict(best_target)
+                    
+                    # Move to target (or simulate if Arduino not available)
+                    if self.simulation_mode:
+                        # Simulation mode - just log the movement
+                        self.logger.debug(f"SIMULATION: Would move to {predicted_pos}")
+                    else:
+                        self.input_controller.move_to_target(
+                            {k: int(v) for k, v in predicted_pos.items()},
+                            {'center': best_target.center, 'tracking_id': best_target.tracking_id}
+                        )
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                self.logger.error(f"Targeting error: {e}")
+
+
+class CVTargetingSystem:
+    """
+    Production AI Aim Assist System with comprehensive lifecycle management
+    """
+    
+    def __init__(self, config_path: str = "configs/config.ini"):
+        self.logger = get_logger(__name__)
+        self.config_path = config_path
+        self.state = ApplicationState.INITIALIZING
+        
+        # Core components
+        self.config_manager: Optional[ConfigManager] = None
+        self.capture: Optional[ScreenCapture] = None
+        self.detector: Optional[YOLOv8Detector] = None
+        self.input_controller: Optional[InputController] = None
+        self.frame_processor: Optional[FrameProcessor] = None
+        self.overlay: Optional[OverlaySystem] = None
+        self.hotkey_manager: Optional[HotkeyManager] = None
+        self.gui: Optional[ProductionGUI] = None
+        
+        # Performance monitoring
+        self.performance_monitor = PerformanceMonitor()
+        self.metrics_thread: Optional[threading.Thread] = None
+        
+        # Lifecycle management
+        self.main_loop_thread: Optional[threading.Thread] = None
+        self.shutdown_event = threading.Event()
+        
+        # Error handling
+        self.error_count = 0
+        self.max_errors = 10
+        
+        # Signal handling
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
+        # Operating mode
+        self.simulation_mode = False  # Set to True when Arduino is not available
+        
+        self.logger.info("CVTargetingSystem initialized")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        self.logger.info(f"Received signal {signum}, initiating shutdown...")
+        self.shutdown()
+    
+    def initialize(self) -> bool:
+        """Initialize all system components"""
+        try:
+            self.logger.info("Initializing system components...")
+            
+            # Setup logging
+            setup_logging({'level': 'INFO', 'log_dir': 'logs'})
+            
+            # Load configuration
+            self.config_manager = ConfigManager(self.config_path)
+            self.config_manager.register_watcher(self._on_config_change)
+            
+            # Initialize capture
+            self.capture = ScreenCapture(config_manager=self.config_manager)
+            
+            # Initialize detector
+            self.detector = YOLOv8Detector(
+                config_manager=None,  # Let detector create its own to avoid circular import
+                backend=InferenceBackend.PYTORCH if torch and torch.cuda.is_available() else InferenceBackend.ONNX
+            )
+            
+            # Initialize input controller
+            self.input_controller = InputController(
+                config_manager=self.config_manager,
+                safety_level=SafetyLevel.STANDARD
+            )
+            
+            # Attempt to connect to Arduino, but continue even if it fails
+            try:
+                arduino_connected = self.input_controller.connect()
+                if arduino_connected:
+                    self.simulation_mode = False
+                    self.logger.info("Arduino connected successfully")
                 else:
-                    logger.error(
-                        "Model did not return results during validation")
-                    return False
+                    self.simulation_mode = True
+                    self.logger.warning("Arduino not available, running in simulation mode")
+            except Exception as arduino_error:
+                self.simulation_mode = True
+                self.logger.warning(f"Arduino connection failed ({arduino_error}), running in simulation mode")
+            
+            # Initialize frame processor
+            self.frame_processor = FrameProcessor(
+                self.detector,
+                self.input_controller,
+                self.config_manager,
+                simulation_mode=self.simulation_mode
+            )
+            
+            # Initialize hotkey manager
+            self.hotkey_manager = HotkeyManager()
+            if self.hotkey_manager is not None:
+                self.hotkey_manager.register_callback('toggle_system', self.toggle_system)
+                self.hotkey_manager.register_callback('toggle_overlay', self.toggle_overlay)
+                self.hotkey_manager.register_callback('reload_config', self.reload_config)
+            
+            # Register performance anomaly handler
+            self.performance_monitor.register_anomaly_callback(self._on_performance_anomaly)
+            
+            # Set ready state
+            self.state = ApplicationState.READY
+            self.logger.info("System initialization complete")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {e}", exc_info=True)
+            self.state = ApplicationState.ERROR
+            return False
+    
+    def _on_config_change(self, config: Dict[str, Any]) -> None:
+        """Handle configuration changes"""
+        self.logger.info("Configuration changed, applying updates...")
+        
+        # Update capture region
+        if self.capture and self.config_manager is not None:
+            try:
+                new_region = self.config_manager.get_screen_region()
+                self.capture.set_region(new_region)
+            except Exception as e:
+                self.logger.error(f"Failed to update capture region: {e}")
+    
+    def _on_performance_anomaly(self, metric: str, value: float) -> None:
+        """Handle performance anomalies"""
+        self.logger.warning(f"Performance anomaly detected - {metric}: {value}")
+        
+        # Auto-adjust based on anomaly
+        if metric == 'latency' and value > 50:  # 50ms latency
+            self.logger.info("High latency detected, reducing quality...")
+            # Could adjust detection model precision or capture resolution
+    
+    def run(self) -> None:
+        """Main application entry point"""
+        # Initialize components
+        if not self.initialize():
+            self.logger.error("Failed to initialize, exiting...")
+            return
+        
+        # Start performance monitoring
+        self.metrics_thread = threading.Thread(
+            target=self._metrics_worker,
+            name="MetricsWorker",
+            daemon=True
+        )
+        self.metrics_thread.start()
+        
+        # Launch UI based on preference
+        ui_mode = self._get_ui_preference()
+        
+        if ui_mode == 'gui' and GUI_AVAILABLE:
+            self._run_with_gui()
+        elif ui_mode == 'overlay':
+            self._run_with_overlay()
+        else:
+            self._run_headless()
+    
+    def _get_ui_preference(self) -> str:
+        """Get UI preference from user"""
+        if len(sys.argv) > 1:
+            return sys.argv[1].lower()
+        
+        print("\n=== AI Aim Assist System ===")
+        print("Select UI mode:")
+        print("1. GUI (Configuration interface)")
+        print("2. Overlay (In-game overlay)")
+        print("3. Headless (No UI)")
+        print("Q. Quit")
+        
+        choice = input("\nEnter choice: ").strip().lower()
+        
+        if choice == '1':
+            return 'gui'
+        elif choice == '2':
+            return 'overlay'
+        elif choice == '3':
+            return 'headless'
+        else:
+            sys.exit(0)
+    
+    def _run_with_gui(self) -> None:
+        """Run with GUI interface"""
+        self.logger.info("Starting with GUI interface...")
+        
+        # Create GUI
+        if self.config_manager is not None:
+            self.gui = ProductionGUI(self.config_manager)
+        else:
+            self.logger.error("Config manager is not initialized. Cannot start GUI.")
+            return
+        
+        # Start main loop in thread
+        self.main_loop_thread = threading.Thread(
+            target=self._main_loop,
+            name="MainLoop",
+            daemon=True
+        )
+        self.main_loop_thread.start()
+        
+        # Run GUI (blocking)
+        if self.gui is not None:
+            self.gui.run()
+        
+        # GUI closed, shutdown
+        self.shutdown()
+    
+    def _run_with_overlay(self) -> None:
+        """Run with overlay interface"""
+        self.logger.info("Starting with overlay interface...")
+        
+        # Create overlay
+        self.overlay = OverlaySystem(
+            mode=OverlayMode.TRANSPARENT,
+            config_manager=self.config_manager
+        )
+        
+        # Start overlay in thread
+        overlay_thread = threading.Thread(
+            target=self.overlay.run,
+            daemon=True
+        )
+        overlay_thread.start()
+        
+        # Run main loop
+        self._main_loop()
+    
+    def _run_headless(self) -> None:
+        """Run without UI"""
+        self.logger.info("Starting in headless mode...")
+        
+        print("\nSystem running. Press Ctrl+C to stop.")
+        if self.hotkey_manager is not None and hasattr(self.hotkey_manager, 'get_bindings'):
+            print(f"Hotkeys: {self.hotkey_manager.get_bindings()}")
+        else:
+            print("Hotkeys: Not available")
+        
+        # Run main loop
+        self._main_loop()
+    
+    def _main_loop(self) -> None:
+        """Main processing loop"""
+        self.logger.info("Starting main processing loop...")
+        
+        # Start components
+        if self.frame_processor is not None:
+            self.frame_processor.start()
+        else:
+            self.logger.error("Frame processor is not initialized.")
+            return
+        
+        if self.hotkey_manager is not None:
+            self.hotkey_manager.start()
+        
+        self.state = ApplicationState.RUNNING
+        
+        # Performance tracking
+        frame_times = deque(maxlen=100)
+        last_metrics_log = time.time()
+        
+        while not self.shutdown_event.is_set():
+            try:
+                if self.state != ApplicationState.RUNNING:
+                    time.sleep(0.1)
+                    continue
+                
+                loop_start = time.perf_counter()
+                
+                # Capture frame
+                capture_start = time.perf_counter()
+                frame = self.capture.capture() if self.capture is not None else None
+                capture_time = (time.perf_counter() - capture_start) * 1000
+                
+                if frame is None:
+                    self.error_count += 1
+                    if self.error_count > self.max_errors:
+                        self.logger.error("Too many capture errors, shutting down...")
+                        break
+                    continue
+                
+                # Process frame
+                if self.frame_processor is not None:
+                    if not self.frame_processor.process_frame(frame):
+                        self.performance_monitor.metrics.dropped_frames += 1
+                
+                # Update metrics
+                self.performance_monitor.update('capture', capture_time)
+                
+                # Send frame to overlay if active
+                if self.overlay:
+                    self.overlay.update_frame(frame)
+                
+                # Track loop time
+                loop_time = (time.perf_counter() - loop_start) * 1000
+                frame_times.append(loop_time)
+                
+                # Log metrics periodically
+                if time.time() - last_metrics_log > 5.0:
+                    metrics = self.performance_monitor.get_metrics()
+                    self.logger.info(f"System metrics: {metrics.to_dict()}")
+                    last_metrics_log = time.time()
+                
+                # Frame rate limiting
+                target_frame_time = 1.0 / 144  # 144 FPS target
+                elapsed = time.perf_counter() - loop_start
+                if elapsed < target_frame_time:
+                    time.sleep(target_frame_time - elapsed)
+                
+            except KeyboardInterrupt:
+                self.logger.info("Keyboard interrupt received")
+                break
+            except Exception as e:
+                self.logger.error(f"Main loop error: {e}", exc_info=True)
+                self.error_count += 1
+                
+                if self.error_count > self.max_errors:
+                    self.logger.error("Too many errors, shutting down...")
+                    break
+        
+        self.logger.info("Main loop ended")
+    
+    def _metrics_worker(self) -> None:
+        """Background metrics collection"""
+        while not self.shutdown_event.is_set():
+            try:
+                # Collect detector metrics
+                if self.detector:
+                    detector_metrics = self.detector.get_metrics()
+                    if 'inference' in detector_metrics:
+                        avg_inference = detector_metrics['inference']['avg_us'] / 1000
+                        self.performance_monitor.update('detection', avg_inference)
+                
+                # Collect input metrics
+                if self.input_controller:
+                    input_metrics = self.input_controller.get_metrics()
+                    if 'metrics' in input_metrics:
+                        latency = input_metrics['metrics'].get('latency_avg_us', 0) / 1000
+                        self.performance_monitor.update('input', latency)
+                
+                # Collect capture metrics
+                if self.capture:
+                    capture_metrics = self.capture.get_metrics()
+                    if 'avg_ms' in capture_metrics:
+                        self.performance_monitor.update('capture', capture_metrics['avg_ms'])
+                
+            except Exception as e:
+                self.logger.error(f"Metrics collection error: {e}")
+            
+            time.sleep(1.0)
+    
+    def toggle_system(self) -> None:
+        """Toggle system running state"""
+        if self.state == ApplicationState.RUNNING:
+            self.state = ApplicationState.PAUSED
+            self.logger.info("System paused")
+        elif self.state == ApplicationState.PAUSED:
+            self.state = ApplicationState.RUNNING
+            self.logger.info("System resumed")
+    
+    def toggle_overlay(self) -> None:
+        """Toggle overlay visibility"""
+        if self.overlay:
+            self.overlay.toggle_visibility()
+    
+    def reload_config(self) -> None:
+        """Reload configuration"""
+        self.logger.info("Reloading configuration...")
+        if self.config_manager is not None:
+            self.config_manager.reload()
+        else:
+            self.logger.error("Config manager is not initialized. Cannot reload.")
+    
+    def shutdown(self) -> None:
+        """Clean shutdown procedure"""
+        if self.state == ApplicationState.SHUTTING_DOWN:
+            return
+        
+        self.logger.info("Initiating shutdown sequence...")
+        self.state = ApplicationState.SHUTTING_DOWN
+        
+        # Signal shutdown
+        self.shutdown_event.set()
+        
+        # Stop components in order
+        if self.frame_processor:
+            self.frame_processor.stop()
+        
+        if self.hotkey_manager:
+            self.hotkey_manager.stop()
+        
+        if self.overlay:
+            self.overlay.stop()
+        
+        if self.input_controller:
+            self.input_controller.disconnect()
+        
+        if self.detector:
+            self.detector.cleanup()
+        
+        if self.capture:
+            self.capture.cleanup()
+        
+        # Wait for threads
+        if self.main_loop_thread and self.main_loop_thread.is_alive():
+            self.main_loop_thread.join(timeout=5.0)
+        
+        if self.metrics_thread and self.metrics_thread.is_alive():
+            self.metrics_thread.join(timeout=2.0)
+        
+        self.logger.info("Shutdown complete")
+    
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.shutdown()
+        return False
+    
+    def enable_gui(self) -> bool:
+        """Enable GUI interface if available"""
+        try:
+            if not self.config_manager:
+                self.logger.error("Cannot enable GUI: system not initialized")
+                return False
+                
+            if GUI_AVAILABLE:
+                self.gui = ProductionGUI(self.config_manager)
+                self.logger.info("GUI enabled")
+                return True
             else:
-                logger.error("Model did not return results during validation")
+                self.logger.warning("GUI not available")
                 return False
         except Exception as e:
-            logger.error(f"Model validation failed: {e}")
+            self.logger.error(f"Failed to enable GUI: {e}")
+            return False
+    
+    def enable_overlay(self) -> bool:
+        """Enable overlay system if available"""
+        try:
+            if not self.config_manager:
+                self.logger.error("Cannot enable overlay: system not initialized")
+                return False
+                
+            from .pygame_overlay import OverlaySystem, OverlayMode
+            screen_region = self.config_manager.get_screen_region()
+            self.overlay = OverlaySystem(
+                config_manager=self.config_manager
+            )
+            self.logger.info("Overlay enabled")
+            return True
+        except ImportError:
+            self.logger.warning("Overlay system not available")
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to enable overlay: {e}")
             return False
 
-    def run(self):
-        print("CVTargetingSystem.run() called")
-        logger.info("Starting CVTargetingSystem.run()")
-        
-        # Check dependencies first
-        from utils import check_dependencies
-        missing_deps = check_dependencies()
-        if missing_deps:
-            logger.error(f"Missing critical dependencies: {missing_deps}")
-            logger.error("Please install missing packages with: pip install -r requirements.txt")
-            return
-            
-        self.load_config()
-        print("Config loaded")
-        self.input_ctrl = InputController(self.config)
-        self.input_ctrl.connect()
-<<<<<<< HEAD
-        print("InputController connected")
-        if not self.input_ctrl.is_connected():
-            print("InputController not connected, exiting")
-=======
-        if self.input_ctrl.is_connected():
-            logger.info(
-                f"[INFO] Successfully connected to Arduino on {self.config.get('arduino_port', 'COM5')}."
-            )
-        else:
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-            logger.error("[ERROR] Failed to connect to Arduino. Exiting.")
-            return
-        print("InputController is connected")
-        self.detector = YOLOv8Detector("configs/default_config.json")
-<<<<<<< HEAD
-        print("YOLOv8Detector instantiated")
-        self.model = self.detector.model if hasattr(self.detector, 'model') else None
-=======
-        self.model = self.detector.model if hasattr(self.detector,
-                                                    'model') else None
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-        logger.info("Loaded model, about to validate...")
-        print("About to validate model")
-        if not self.validate_model():
-            print("Model validation failed. Exiting.")
-            logger.error("Model validation failed. Exiting.")
-            return
-        print("Model validated")
-        # --- GUI/Overlay selection ---
-        use_pygame = False
-        while True:
-            mode = input("Select mode: [1] GUI  [2] Pygame Overlay  [q] Quit: ").strip()
-            if mode == "1":
-                print("Launching configuration GUI...")
-                from gui import CVTargetingGUI
-                gui = CVTargetingGUI(self.config)
-                # Optionally, enable overlay after GUI closes
-                popup = input("Enable overlay after closing GUI? [y/N]: ").strip().lower()
-                if popup == 'y':
-                    gui.enable_pygame_overlay()
-                gui.run()
-                break
-            elif mode == "2":
-                use_pygame = True
-                break
-            elif mode.lower() == "q":
-                print("Exiting.")
-                return
-        if use_pygame:
-            self.start_detection()  # Ensure detection/AI loop runs in background
-            region = self.config_manager.get_screen_region()
-            fov = region.get('width', 280)
-            self.overlay = PygameOverlay(width=region.get('width', 960), height=region.get('height', 720), fov=fov)
-            def overlay_loop():
-                while self.overlay is not None and getattr(self.overlay, 'running', False):
-                    frame = get_frame(region)
-                    if frame is not None and isinstance(frame, np.ndarray):
-                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        surf = pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
-                        if self.overlay is not None and hasattr(self.overlay, 'screen') and self.overlay.screen is not None:
-                            self.overlay.screen.blit(surf, (0, 0))
-                    else:
-                        # If no frame, fill with a blank background
-                        self.overlay.screen.fill((30, 30, 30))
-                    pygame.display.flip()
-                    if self.overlay is not None and hasattr(self.overlay, 'clock') and self.overlay.clock is not None:
-                        self.overlay.clock.tick(60)
-            t = threading.Thread(target=overlay_loop, daemon=True)
-            t.start()
-            # Do not block main thread; let overlay run in background
-            print("Pygame overlay started in background thread")
 
-    def toggle_system(self):
-        self.toggle_aimbot(not self.running)
-
-    def toggle_aimbot(self, state):
-        if state:
-            self.start_detection()
-        else:
-            self.stop_detection()
-
-    def start_detection(self):
-        if not self.running:
-            self.running = True
-            if self.model is None:
-                self.detector = YOLOv8Detector("configs/default_config.json")
-                self.model = self.detector.model if hasattr(
-                    self.detector, 'model') else None
-            if self.predictor is None:
-                self.predictor = TargetPredictor(self.config)
-<<<<<<< HEAD
-            region = self.config.get("screen_region") or {"left": 0, "top": 0, "width": 280, "height": 280}
-=======
-            # Arduino is already connected in run()
-            region = self.config.get("screen_region", {
-                "left": 650,
-                "top": 362,
-                "width": 300,
-                "height": 300
-            })
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-            self.monitor = {
-                "top": int(region.get("top", 0)),
-                "left": int(region.get("left", 0)),
-                "width": int(region.get("width", 280)),
-                "height": int(region.get("height", 280))
-            }
-            if self.frame_queue is None:
-                self.frame_queue = queue.Queue(maxsize=2)
-<<<<<<< HEAD
-            # Only start detection_thread, not capture_thread
-            self.detect_thread = threading.Thread(target=self.detection_loop, daemon=True)
-=======
-            self.capture_thread = threading.Thread(target=self.capture_loop,
-                                                   daemon=True)
-            self.detect_thread = threading.Thread(target=self.detect_loop,
-                                                  daemon=True)
-            self.capture_thread.start()
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-            self.detect_thread.start()
-
-    def stop_detection(self):
-        self.running = False
-
-    def get_live_detections(self, frame):
-        if self.detector is None:
-            return []
-        return self.detector.detect(frame)
-
-    def detection_loop(self):
-        logger.info("Detection loop started")
-        if self.input_ctrl is None:
-            self.input_ctrl = InputController(self.config)
-            self.input_ctrl.connect()
-        if self.predictor is None:
-            self.predictor = TargetPredictor(self.config)
-<<<<<<< HEAD
-        region = self.config.get("screen_region") or {"left": 0, "top": 0, "width": 280, "height": 280}
-        left = int(region.get("left", 0))
-        top = int(region.get("top", 0))
-        w = int(region.get("width", 280))
-        h = int(region.get("height", 280))
-        monitor = {"left": left, "top": top, "width": w, "height": h}
-        with mss.mss() as sct:
-            while self.running:
-                try:
-                    frame = None
-=======
-        while self.running:
-            if not self.capture or not self.detector:
-                logger.error("Capture or detector not initialized!")
-                break
-            frame = self.capture.capture()
-            detections = self.get_live_detections(
-                frame) if frame is not None else []
-            if detections:
-                region = self.config.get("screen_region", {
-                    "left": 650,
-                    "top": 362,
-                    "width": 300,
-                    "height": 300
-                })
-                screen_center = (region["width"] // 2, region["height"] // 2)
-                best = self.predictor.select_best_target(
-                    detections, screen_center)
-                if best:
-                    predicted_pos = self.predictor.predict(best)
-                    self.input_ctrl.move_to_target(predicted_pos, best)
-            show_capture = self.gui.show_capture_window.get(
-            ) if self.gui else False
-            if show_capture and frame is not None:
-                for det in detections:
-                    x1, y1, x2, y2 = det['box']
-                    cv2.rectangle(frame, (int(x1), int(y1)),
-                                  (int(x2), int(y2)), (0, 255, 0), 2)
-                if isinstance(frame, np.ndarray):
-                    h, w = frame.shape[:2]
-                    cv2.drawMarker(frame, (w // 2, h // 2), (0, 0, 255),
-                                   markerType=cv2.MARKER_CROSS,
-                                   markerSize=30,
-                                   thickness=2)
-                    cv2.imshow(self.capture_window_name, frame)
-                    cv2.waitKey(1)
-                else:
-                    logger.error(
-                        f"Frame is not a valid numpy array: type={type(frame)}, value={frame}"
-                    )
-            else:
-                try:
-                    cv2.destroyWindow(self.capture_window_name)
-                except:
-                    pass
-            time.sleep(0.016)
-
-    def capture_loop(self):
-        """Fast screen capture loop using bettercam with frame interpolation for target FPS."""
+def main():
+    """Application entry point"""
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="AI Aim Assist System")
+    parser.add_argument('--config', default='configs/config.ini', help='Configuration file path')
+    parser.add_argument('--ui', choices=['gui', 'overlay', 'headless'], help='UI mode')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    args = parser.parse_args()
+    
+    # Setup logging
+    log_level = 'DEBUG' if args.debug else 'INFO'
+    setup_logging({'level': log_level})
+    
+    # Create and run system
+    with CVTargetingSystem(args.config) as system:
         try:
-            import bettercam
-        except ImportError:
-            logger.error("bettercam module not found. Please install it with: pip install bettercam")
-            return
-        target_fps = 120  # You can adjust this as needed
-        frame_interval = 1.0 / target_fps
-        if self.frame_queue is None:
-            logger.error("Frame queue is not initialized!")
-            return
-        try:
-            cam = bettercam.create()
+            system.run()
         except Exception as e:
-            logger.error(
-                f"Failed to initialize bettercam in capture thread: {e}")
-            return
-        last_frame = None
-        last_time = time.perf_counter()
-        # Always get real screen size and region at runtime
-        screen_w, screen_h = self.get_screen_size()
-        fov = self.config.get('fov_size', 280)
-        while self.running and self.monitor:
-            try:
-                now = time.perf_counter()
-                elapsed = now - last_time
-                # Calculate centered region
-                left = (screen_w - fov) // 2
-                top = (screen_h - fov) // 2
-                if left < 0:
-                    left = 0
-                if top < 0:
-                    top = 0
-                if left + fov > screen_w:
-                    left = screen_w - fov
-                if top + fov > screen_h:
-                    top = screen_h - fov
-                w = min(fov, screen_w - left)
-                h = min(fov, screen_h - top)
-                region_tuple = (int(left), int(top), int(w), int(h))
-                logger.info(f"Sanitized region: {region_tuple}")
-                logger.info(f"Region types: {[type(x) for x in region_tuple]}")
-                assert all(
-                    isinstance(x, int) and x >= 0 for x in region_tuple
-                ), f"Region values must be int and >=0: {region_tuple}"
-                if elapsed < frame_interval:
-                    if last_frame is not None:
-                        frame = last_frame.copy()
-                    else:
-                        time.sleep(frame_interval - elapsed)
-                        continue
-                else:
-                    logger.info(f"About to capture region: {region_tuple}")
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-                    try:
-                        img = sct.grab(monitor)
-                        frame = np.array(img)
-                        if frame.shape[2] == 4:
-                            frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                        frame = np.ascontiguousarray(frame)
-                    except Exception as e:
-<<<<<<< HEAD
-                        logger.error(f"Screen capture error: {e}")
-                        frame = None
-                    detections = []
-                    results = None
-                    if frame is not None and self.detector is not None:
-                        try:
-                            results = self.detector.model(frame, verbose=False)[0]
-                        except Exception as e:
-                            logger.error(f"YOLOv8 inference error: {e}")
-                            results = None
-                    # Robust detection extraction
-                    if results is not None and hasattr(results, 'boxes') and results.boxes is not None:
-                        boxes = results.boxes
-                        if hasattr(boxes, 'xyxy') and boxes.xyxy is not None and len(boxes.xyxy) > 0:
-                            for box in boxes:
-                                if box.xyxy is None or len(box.xyxy.shape) != 2 or box.xyxy.shape[0] < 1:
-                                    continue
-                                class_id = int(box.cls.item()) if hasattr(box, 'cls') else -1
-                                confidence = float(box.conf.item()) if hasattr(box, 'conf') else 0.0
-=======
-                        logger.error(
-                            f"Grab failed with region={region_tuple}: {e}")
-                        if w > 1 and h > 1:
-                            logger.info(
-                                f"Retrying with w-1/h-1: ({left},{top},{w-1},{h-1})"
-                            )
-                            try:
-                                frame = cam.grab(region=(int(left), int(top),
-                                                         int(w - 1),
-                                                         int(h - 1)))
-                            except Exception as e2:
-                                logger.error(
-                                    f"Second grab attempt failed: {e2}")
-                                frame = None
-                        else:
-                            frame = None
-                    last_time = now
-                    if frame is not None:
-                        last_frame = frame.copy()
-                if frame is not None:
-                    if frame.shape[2] == 4:
-                        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                    frame = np.ascontiguousarray(frame)
-                    if not self.frame_queue.full():
-                        self.frame_queue.put(frame)
-                else:
-                    logger.error("Screen capture returned None frame.")
-            except Exception as e:
-                logger.error(f"Capture error: {e}")
-            time.sleep(0)  # Yield thread
-
-    def detect_loop(self):
-        """Fast YOLO detection loop, decoupled from capture."""
-        if self.frame_queue is None:
-            logger.error("Frame queue is not initialized!")
-            return
-        while self.running and self.model and self.predictor:
-            try:
-                if not self.frame_queue.empty():
-                    frame = self.frame_queue.get()
-                    start = time.perf_counter()
-                    results = self.model(frame,
-                                         imgsz=128,
-                                         device=0,
-                                         verbose=False)[0]
-                    end = time.perf_counter()
-                    logger.info(f"Inference time: {(end-start)*1000:.2f} ms")
-                    detections = []
-                    if results is not None and hasattr(
-                            results, 'boxes') and results.boxes is not None:
-                        for box in results.boxes:
-                            class_id = int(box.cls.item())
-                            confidence = float(box.conf.item())
-                            if (class_id == self.config.get(
-                                    "target_class_id", 0)
-                                    and confidence >= self.config.get(
-                                        "yolo", {}).get(
-                                            "confidence_threshold", 0.4)):
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-                                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                                detections.append({
-                                    'box': (x1, y1, x2, y2),
-                                    'confidence': confidence,
-                                    'class_id': class_id
-                                })
-<<<<<<< HEAD
-                        else:
-                            logger.debug("No detections found in this frame.")
-                    else:
-                        logger.debug("No boxes found in results.")
-                    # --- Send detections to PygameOverlay if available ---
-                    if hasattr(self, 'overlay') and self.overlay:
-                        self.overlay.set_detections(detections)
-                    # Robust target selection and aiming
-                    if detections:
-                        screen_center = (w // 2, h // 2)
-                        best = self.predictor.select_best_target(detections, screen_center)
-                        if best:
-                            predicted_pos = self.predictor.predict(best)
-                            self.input_ctrl.move_to_target(predicted_pos, best)
-                    show_capture = self.gui.show_capture_window.get() if self.gui else False
-                    if show_capture and frame is not None:
-                        for det in detections:
-                            x1, y1, x2, y2 = det['box']
-                            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-                        if isinstance(frame, np.ndarray):
-                            hh, ww = frame.shape[:2]
-                            cv2.drawMarker(frame, (ww//2, hh//2), (0, 0, 255), markerType=cv2.MARKER_CROSS, markerSize=30, thickness=2)
-                            cv2.imshow(self.capture_window_name, frame)
-                            cv2.waitKey(1)
-                        else:
-                            logger.error(f"Frame is not a valid numpy array: type={type(frame)}, value={frame}")
-                    else:
-                        try:
-                            cv2.destroyWindow(self.capture_window_name)
-                        except:
-                            pass
-                    time.sleep(0.016)
-                except Exception as e:
-                    logger.error(f"Detection loop error: {e}")
-                    time.sleep(0.05)
-
-    def __enter__(self):
-        # Context manager entry: start system
-        logger.info("CVTargetingSystem context entered.")
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Context manager exit: cleanup resources
-        logger.info("CVTargetingSystem context exiting. Cleaning up resources...")
-        self.cleanup()
-        return False  # Do not suppress exceptions
-
-    def cleanup(self):
-        # Proper resource cleanup for overlay, OpenCV windows, threads, etc.
-        if self.overlay:
-            try:
-                self.overlay.running = False
-                # If overlay has a cleanup method, call it
-                if hasattr(self.overlay, 'cleanup'):
-                    self.overlay.cleanup()
-=======
-                    # Only send to Arduino if target changed
-                    if detections and self.monitor:
-                        screen_center = (self.monitor["width"] // 2,
-                                         self.monitor["height"] // 2)
-                        best = self.predictor.select_best_target(
-                            detections, screen_center)
-                        if best:
-                            try:
-                                predicted_pos = self.predictor.predict(best)
-                                if self.input_ctrl:
-                                    self.input_ctrl.move_to_target(
-                                        predicted_pos, best)
-                            except Exception as e:
-                                logger.error(
-                                    f"Arduino communication error: {e}")
-                    # Optionally, throttle Arduino writes to 100 Hz
-                    time.sleep(0.01)
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
-            except Exception as e:
-                logger.error(f"Error cleaning up overlay: {e}")
-        try:
-            cv2.destroyAllWindows()
-        except Exception:
-            pass
-        # Stop detection thread
-        self.running = False
-        if self.detect_thread and self.detect_thread.is_alive():
-            self.detect_thread.join(timeout=2)
-        # Disconnect input controller
-        if self.input_ctrl and hasattr(self.input_ctrl, 'disconnect'):
-            try:
-                self.input_ctrl.disconnect()
-            except Exception as e:
-                logger.error(f"Error disconnecting input controller: {e}")
-        logger.info("CVTargetingSystem cleanup complete.")
-
-def np_to_surface(frame):
-    # Convert BGR (OpenCV) to RGB (Pygame)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
-
-# Removed local PygameOverlay class to avoid type conflict with imported PygameOverlay.
+            logger = get_logger(__name__)
+            logger.error(f"Fatal error: {e}", exc_info=True)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
-    print("=== Entered main ===")
-    logger.info("Script started")
-    system = CVTargetingSystem()
-<<<<<<< HEAD
-    print("CVTargetingSystem instantiated")
-    logger.info("CVTargetingSystem instantiated")
-    system.run()
-    print("system.run() returned")
-    logger.info("system.run() returned")
-=======
-    system.run()
->>>>>>> b93bf65d8d3af3b268c813665afac1be30d6e3ec
+    main()

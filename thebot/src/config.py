@@ -1,97 +1,150 @@
 """
-Configuration Management Module
-Purpose: Loads, merges, and provides access to application settings.
+Configuration Backward Compatibility Module
+Purpose: Maintains compatibility with legacy code expecting the old Config class
 """
-import json
-import argparse
-import os
-import yaml  # Add this import
-from logger_util import Logger
+import warnings
+from pathlib import Path
+from typing import Optional, Dict, Any
+
+# Import the new configuration system
+from .config_manager import ConfigManager, ScreenRegion, ModelConfig, AimConfig
+from .logger_util import get_logger
+
+# Show deprecation warning
+warnings.warn(
+    "config.py is deprecated. Please use config_manager.py instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 class Config:
-    """Handles application configuration from a file and CLI arguments."""
-
-    def __init__(self, config_path=None, cli_args=None):
-        self.logger = Logger(__name__)
+    """
+    Legacy Config class wrapper around new ConfigManager
+    Provides backward compatibility for existing code
+    """
+    
+    def __init__(self, config_path: Optional[str] = None, cli_args: Optional[Any] = None):
+        self.logger = get_logger(__name__)
+        
+        # Use new ConfigManager internally
         if config_path is None:
-            # Prefer ini if present, else fallback to json
-            if os.path.exists("configs/config.ini"):
+            # Check for old paths
+            if Path("src/configs/config.ini").exists():
+                config_path = "src/configs/config.ini"
+            elif Path("configs/config.ini").exists():
                 config_path = "configs/config.ini"
             else:
                 config_path = "configs/default_config.json"
-        self._config = self._load_from_file(config_path)
-
-        # Load data.yaml for real class name and id
-        data_yaml_path = "thebot/src/models/data.yaml"
-        if os.path.exists(data_yaml_path):
-            with open(data_yaml_path, "r") as f:
-                data = yaml.safe_load(f)
-                # NOTE: This is the models trained targeting info for detections:
-                # names: ['fn - v1 2023-11-26 7-24am']
-                # target_class_id: 0
-                # classes: ['fn - v1 2023-11-26 7-24am']
-                real_name = None
-                if "names" in data and isinstance(data["names"], list) and data["names"]:
-                    real_name = data["names"][0]
-                elif "classes" in data and isinstance(data["classes"], list) and data["classes"]:
-                    real_name = data["classes"][0]
-                class_id = data.get("target_class_id", 0)
-                self._config["target_class_id"] = class_id
-                self._config["target_class_real_name"] = real_name
-                self._config["target_class_name"] = "player"  # always use "player" internally
-        else:
-            self.logger.warning(f"data.yaml not found at {data_yaml_path}")
-
-        # Remove toggle_key from config if present
-        if "toggle_key" in self._config:
-            del self._config["toggle_key"]
-
+        
+        self._manager = ConfigManager(config_path)
+        self._config = self._manager.as_dict()
+        
+        # Handle CLI overrides
         if cli_args:
             self._override_with_cli(cli_args)
-
-    def _load_from_file(self, config_path):
-        """Loads a JSON configuration file."""
-        try:
-            with open(config_path, 'r') as f:
-                self.logger.info(f"Loading configuration from {config_path}")
-                return json.load(f)
-        except FileNotFoundError:
-            self.logger.error(f"Configuration file not found at {config_path}. Exiting.")
-            raise
-        except json.JSONDecodeError:
-            self.logger.error(f"Invalid JSON in configuration file: {config_path}. Exiting.")
-            raise
-
-    def _override_with_cli(self, cli_args):
-        """Overrides file-based settings with any provided CLI arguments."""
+        
+        self.logger.info("Legacy Config wrapper initialized")
+    
+    def _override_with_cli(self, cli_args: Any) -> None:
+        """Override with CLI arguments (legacy compatibility)"""
         overrides = {key: value for key, value in vars(cli_args).items() if value is not None}
+        
         if overrides:
             self.logger.info(f"Overriding config with CLI arguments: {overrides}")
+            
+            # Map legacy CLI args to new structure
             cli_to_config_map = {
-                'aim_offset': 'aim_height_offset',
-                'max_distance': 'max_tracking_distance',
-                'confidence_threshold': 'confidence_threshold',
-                'model_path': 'model_path'
+                'aim_offset': ('aim_settings', 'aim_height'),
+                'max_distance': ('aim_settings', 'max_distance'),
+                'confidence_threshold': ('model_settings', 'confidence'),
+                'model_path': ('model_settings', 'model_path')
             }
+            
             for cli_key, value in overrides.items():
                 if cli_key in cli_to_config_map:
-                    config_key = cli_to_config_map[cli_key]
-                    # Enforce model paths if model_path is being set
-                    if config_key == 'model_path':
-                        self._config[config_key] = "thebot/src/models/best.onnx"
-                        self._config['fallback_model_path'] = "thebot/src/models/yolo/yolov8n.pt"
-                    else:
-                        self._config[config_key] = value
+                    section, key = cli_to_config_map[cli_key]
+                    self._manager.set(section, key, value)
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get configuration value (legacy method)"""
+        # First check flat config
+        if key in self._config:
+            return self._config[key]
+        
+        # Then check nested values
+        for section, values in self._config.items():
+            if isinstance(values, dict) and key in values:
+                return values[key]
+        
+        return default
+    
+    def __getitem__(self, key: str) -> Any:
+        """Dictionary-style access"""
+        value = self.get(key)
+        if value is None:
+            raise KeyError(f"Configuration key not found: {key}")
+        return value
+    
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists"""
+        return self.get(key) is not None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Get full configuration as dictionary"""
+        return self._config
+    
+    # Add commonly accessed properties for compatibility
+    @property
+    def screen_region(self) -> Dict[str, int]:
+        """Get screen region as dictionary"""
+        region = self._manager.get_screen_region()
+        return region.to_dict()
+    
+    @property
+    def model_path(self) -> str:
+        """Get model path"""
+        return self._manager.get_model_config().model_path
+    
+    @property
+    def confidence_threshold(self) -> float:
+        """Get confidence threshold"""
+        return self._manager.get_model_config().confidence_threshold
+    
+    @property
+    def arduino_port(self) -> str:
+        """Get Arduino port"""
+        return self._manager.get_arduino_config().port
+    
+    @property
+    def aim_height_offset(self) -> float:
+        """Get aim height offset"""
+        return self._manager.get_aim_config().aim_height_offset
 
-    def get(self, key, default=None):
-        """Retrieves a configuration value by key."""
-        return self._config.get(key, default)
 
-    def __getitem__(self, key):
-        return self._config[key]
+# Global instance for backward compatibility
+CONFIG: Optional[Config] = None
 
-    def __contains__(self, key):
-        return key in self._config
 
-    def to_dict(self):
-        return dict(self._config)
+def load_config(config_path: Optional[str] = None) -> Config:
+    """
+    Load configuration (legacy function)
+    
+    Args:
+        config_path: Path to configuration file
+        
+    Returns:
+        Config instance
+    """
+    global CONFIG
+    CONFIG = Config(config_path)
+    return CONFIG
+
+
+# Auto-load default config if imported
+if CONFIG is None:
+    try:
+        CONFIG = load_config()
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.warning(f"Failed to auto-load config: {e}")
