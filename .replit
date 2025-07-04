@@ -1,0 +1,33 @@
+modules = ["python-3.12", "cpp-clang14", "web", "c-clang14", "nodejs-20", "python-with-prybar-3.10", "python-3.10", "docker", "bash", "gcloud"]
+run = "python /main.py"
+
+[nix]
+channel = "stable-24_05"
+packages = ["SDL2", "SDL2_image", "SDL2_mixer", "SDL2_ttf", "abseil-cpp", "awsebcli", "cacert", "cairo", "cargo", "chromedriver", "espeak-ng", "ffmpeg-full", "fontconfig", "freetype", "gdb", "geos", "ghostscript", "glfw3", "glibcLocales", "gobject-introspection", "gtest", "gtk3", "hdf5", "libGL", "libGLU", "libcxx", "libffi", "libiconv", "libjpeg", "libjpeg_turbo", "libpng", "libxcrypt", "ncurses", "openssl", "pkg-config", "portmidi", "qhull", "rustc", "tcl", "tk", "unzip", "util-linux", "which", "xsimd"]
+
+[deployment]
+run = ["sh", "-c", "python /main.py"]
+
+[workflows]
+runButton = "Run AI Targeting System"
+
+[[workflows.workflow]]
+name = "start"
+mode = "parallel"
+author = 38504167
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "start"
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow]]
+name = "Run AI Targeting System"
+author = 38504167
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
